@@ -15,7 +15,7 @@ export function GET(request: NextRequest) {
   const redirectPath = getSafeRedirectPath(
     request.nextUrl.searchParams.get("redirect"),
   );
-  const response = NextResponse.redirect(new URL(redirectPath, request.url));
+  const response = NextResponse.redirect(new URL(redirectPath, process.env.SITE_URL || request.nextUrl.origin));
 
   response.cookies.set(localeCookieName, locale, {
     httpOnly: false,

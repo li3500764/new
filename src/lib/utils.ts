@@ -37,7 +37,14 @@ export function withQueryMessage(
   path: string,
   key: "error" | "success",
   message: string,
+  baseUrl?: string,
 ) {
+  const siteUrl = baseUrl || process.env.SITE_URL;
+  if (siteUrl) {
+    const url = new URL(path, siteUrl);
+    url.searchParams.set(key, message);
+    return url.toString();
+  }
   const url = new URL(path, "http://localhost");
   url.searchParams.set(key, message);
 
