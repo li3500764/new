@@ -41,7 +41,10 @@ test("cryptomus only credits successful final payment statuses", async () => {
   );
 
   assert.equal(isCryptomusPaidFinal({ status: "paid", is_final: true }), true);
+  assert.equal(isCryptomusPaidFinal({ status: "PAID", is_final: "true" }), true);
+  assert.equal(isCryptomusPaidFinal({ status: "paid_over", is_final: 1 }), true);
   assert.equal(isCryptomusPaidFinal({ status: "paid", is_final: false }), false);
   assert.equal(isCryptomusPaidFinal({ status: "check", is_final: true }), false);
   assert.equal(isCryptomusFailedFinal({ status: "fail", is_final: true }), true);
+  assert.equal(isCryptomusFailedFinal({ status: "FAIL", is_final: "1" }), true);
 });

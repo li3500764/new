@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { RechargeProvider } from "@prisma/client";
 
 import { AlertBanner } from "@/components/alert-banner";
 import { CopyButton } from "@/components/copy-button";
@@ -15,8 +16,8 @@ import { getMarketingCopy } from "@/lib/i18n";
 import { getCurrentLocale } from "@/lib/i18n-server";
 import { formatUsdt } from "@/lib/money";
 import {
-  getRechargeExplorerLinks,
   getLocalizedRechargeNetworks,
+  getRechargeExplorerLinks,
   getRechargeNetworkMeta,
   getRechargeStatusMeta,
   getRechargeVerificationMeta,
@@ -26,6 +27,22 @@ import { formatDate, getFlashMessage } from "@/lib/utils";
 
 type RechargePageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function providerLabel(provider: RechargeProvider) {
+  return provider === RechargeProvider.CRYPTOMUS ? "\u81ea\u52a8\u5145\u503c" : "\u4eba\u5de5\u5145\u503c";
+}
+
+const pageText = {
+  autoPanelTitle: "Cryptomus \u81ea\u52a8\u5145\u503c\u901a\u9053",
+  autoPanelBody:
+    "\u8fd9\u7b14\u5145\u503c\u7531 Cryptomus \u5b98\u65b9\u4ed8\u6b3e\u9875\u5904\u7406\u3002\u8fd9\u91cc\u4e0d\u5c55\u793a\u6536\u6b3e\u5730\u5740\u3001\u4e8c\u7ef4\u7801\u6216\u54c8\u5e0c\u8f93\u5165\u6846\uff1b\u652f\u4ed8\u6210\u529f\u540e\u7cfb\u7edf\u4f1a\u901a\u8fc7\u56de\u8c03\u81ea\u52a8\u5165\u8d26\u3002",
+  channel: "\u652f\u4ed8\u6e20\u9053",
+  paymentStatus: "\u652f\u4ed8\u72b6\u6001",
+  continuePayment: "\u7ee7\u7eed\u4ed8\u6b3e",
+  listHint:
+    "\u81ea\u52a8\u5145\u503c\u53ea\u663e\u793a\u652f\u4ed8\u72b6\u6001\uff1b\u4eba\u5de5\u5145\u503c\u624d\u663e\u793a\u5730\u5740\u3001\u54c8\u5e0c\u548c\u94fe\u4e0a\u6838\u9a8c\u3002",
+  waitingCallback: "\u7b49\u5f85\u652f\u4ed8\u56de\u8c03",
 };
 
 export default async function RechargePage({ searchParams }: RechargePageProps) {
@@ -70,128 +87,183 @@ export default async function RechargePage({ searchParams }: RechargePageProps) 
               <div className="text-sm uppercase tracking-[0.2em] text-slate-400">
                 {copy.recharge.activeDeposit}
               </div>
-              <h2 className="mt-3 text-3xl font-black text-slate-950">{latestActiveRecharge.serialNo}</h2>
+              <h2 className="mt-3 text-3xl font-black text-slate-950">
+                {latestActiveRecharge.serialNo}
+              </h2>
               <div className="mt-4 flex flex-wrap gap-2">
+                <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+                  {providerLabel(latestActiveRecharge.provider)}
+                </span>
                 <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
                   {getRechargeStatusMeta(latestActiveRecharge.status, locale).label}
                 </span>
-                <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
-                  {getRechargeVerificationMeta(latestActiveRecharge.verificationStatus, locale).label}
-                </span>
+                {latestActiveRecharge.provider === RechargeProvider.MANUAL ? (
+                  <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+                    {getRechargeVerificationMeta(latestActiveRecharge.verificationStatus, locale).label}
+                  </span>
+                ) : null}
               </div>
               <div className="mt-6 space-y-4 text-sm text-slate-600">
-                <div>{copy.recharge.activeAmount}: {formatUsdt(latestActiveRecharge.amountMicros)} USDT</div>
-                <div>{copy.recharge.activeNetwork}: {latestActiveRecharge.network}</div>
-                <div>{copy.recharge.activeCreatedAt}: {formatDate(latestActiveRecharge.createdAt, locale)}</div>
+                <div>
+                  {copy.recharge.activeAmount}: {formatUsdt(latestActiveRecharge.amountMicros)} USDT
+                </div>
+                <div>
+                  {copy.recharge.activeNetwork}: {latestActiveRecharge.network}
+                </div>
+                <div>
+                  {copy.recharge.activeCreatedAt}: {formatDate(latestActiveRecharge.createdAt, locale)}
+                </div>
                 <div>
                   {copy.recharge.activeExpiresAt}:{" "}
                   {latestActiveRecharge.expiresAt
                     ? formatDate(latestActiveRecharge.expiresAt, locale)
                     : copy.recharge.activeNotSet}
                 </div>
-                <div>
-                  {copy.recharge.activeVerification}:{" "}
-                  {getRechargeVerificationSummary(latestActiveRecharge, locale)}
-                </div>
               </div>
             </div>
 
             <div className="p-6">
-              <div className="grid gap-4 xl:grid-cols-[1fr_auto] xl:items-start">
-                <div>
-                  <div className="text-sm font-semibold text-slate-500">{copy.recharge.receivingAddress}</div>
-                  <div className="mt-2 break-all text-base font-black text-slate-950">
-                    {latestActiveRecharge.walletAddress}
-                  </div>
-                </div>
-                <CopyButton
-                  text={latestActiveRecharge.walletAddress}
-                  idleLabel={copy.common.copyAddress}
-                  copiedLabel={copy.common.copied}
-                />
-              </div>
-
-              <div className="mt-4 grid gap-4 md:grid-cols-3">
-                <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                  <div className="text-sm font-semibold text-slate-500">{copy.recharge.transferAmount}</div>
-                  <div className="mt-2 text-xl font-black text-slate-950">
-                    {formatUsdt(latestActiveRecharge.amountMicros)} USDT
-                  </div>
-                </div>
-                <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                  <div className="text-sm font-semibold text-slate-500">{copy.recharge.confirmations}</div>
-                  <div className="mt-2 text-xl font-black text-slate-950">
-                    {latestActiveRecharge.verificationConfirmations ?? 0} /{" "}
-                    {getRechargeNetworkMeta(latestActiveRecharge.network).minConfirmations}
-                  </div>
-                </div>
-                  <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                    <div className="text-sm font-semibold text-slate-500">{copy.recharge.onchainStatus}</div>
-                    <div className="mt-2 text-sm font-semibold text-slate-900">
-                      {getRechargeVerificationSummary(latestActiveRecharge, locale)}
+              {latestActiveRecharge.provider === RechargeProvider.CRYPTOMUS ? (
+                <div className="space-y-5">
+                  <div className="rounded-[28px] border border-sky-100 bg-sky-50 p-5">
+                    <div className="text-sm font-semibold text-sky-700">
+                      {pageText.autoPanelTitle}
+                    </div>
+                    <div className="mt-2 text-sm leading-6 text-slate-600">
+                      {pageText.autoPanelBody}
                     </div>
                   </div>
-              </div>
 
-              <form
-                action={submitRechargeProofAction}
-                className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_240px_auto]"
-              >
-                <input
-                  type="hidden"
-                  name="rechargeOrderId"
-                  value={latestActiveRecharge.id}
-                />
-                <input
-                  type="text"
-                  name="txHash"
-                  placeholder={copy.recharge.txHashPlaceholder}
-                  defaultValue={latestActiveRecharge.txHash ?? ""}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-slate-950"
-                />
-                <input
-                  type="text"
-                  name="proofNote"
-                  placeholder={copy.recharge.proofNotePlaceholder}
-                  defaultValue={latestActiveRecharge.proofNote ?? ""}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-slate-950"
-                />
-                <SubmitButton pendingText={copy.recharge.submitPending} className="h-[50px]">
-                  {copy.recharge.submitAndVerify}
-                </SubmitButton>
-              </form>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="rounded-2xl bg-slate-50 px-4 py-4">
+                      <div className="text-sm font-semibold text-slate-500">{pageText.channel}</div>
+                      <div className="mt-2 text-xl font-black text-slate-950">Cryptomus</div>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 px-4 py-4">
+                      <div className="text-sm font-semibold text-slate-500">
+                        {copy.recharge.transferAmount}
+                      </div>
+                      <div className="mt-2 text-xl font-black text-slate-950">
+                        {formatUsdt(latestActiveRecharge.amountMicros)} USDT
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 px-4 py-4">
+                      <div className="text-sm font-semibold text-slate-500">{pageText.paymentStatus}</div>
+                      <div className="mt-2 text-sm font-semibold text-slate-900">
+                        {latestActiveRecharge.providerStatus ??
+                          getRechargeStatusMeta(latestActiveRecharge.status, locale).label}
+                      </div>
+                    </div>
+                  </div>
 
-              <div className="mt-4 flex flex-wrap gap-3">
-                <form action={recheckRechargeVerificationAction}>
-                  <input
-                    type="hidden"
-                    name="rechargeOrderId"
-                    value={latestActiveRecharge.id}
-                  />
-                  <input type="hidden" name="returnTo" value="/recharge" />
-                  <SubmitButton
-                    pendingText={copy.recharge.refetchPending}
-                    className="border border-slate-200 bg-white text-slate-950 hover:bg-slate-50"
+                  {latestActiveRecharge.providerPaymentUrl ? (
+                    <Link
+                      href={latestActiveRecharge.providerPaymentUrl}
+                      className="inline-flex rounded-full bg-sky-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-700"
+                    >
+                      {pageText.continuePayment}
+                    </Link>
+                  ) : null}
+                </div>
+              ) : (
+                <>
+                  <div className="grid gap-4 xl:grid-cols-[1fr_auto] xl:items-start">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-500">
+                        {copy.recharge.receivingAddress}
+                      </div>
+                      <div className="mt-2 break-all text-base font-black text-slate-950">
+                        {latestActiveRecharge.walletAddress}
+                      </div>
+                    </div>
+                    <CopyButton
+                      text={latestActiveRecharge.walletAddress}
+                      idleLabel={copy.common.copyAddress}
+                      copiedLabel={copy.common.copied}
+                    />
+                  </div>
+
+                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                    <div className="rounded-2xl bg-slate-50 px-4 py-4">
+                      <div className="text-sm font-semibold text-slate-500">
+                        {copy.recharge.transferAmount}
+                      </div>
+                      <div className="mt-2 text-xl font-black text-slate-950">
+                        {formatUsdt(latestActiveRecharge.amountMicros)} USDT
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 px-4 py-4">
+                      <div className="text-sm font-semibold text-slate-500">
+                        {copy.recharge.confirmations}
+                      </div>
+                      <div className="mt-2 text-xl font-black text-slate-950">
+                        {latestActiveRecharge.verificationConfirmations ?? 0} /{" "}
+                        {getRechargeNetworkMeta(latestActiveRecharge.network).minConfirmations}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 px-4 py-4">
+                      <div className="text-sm font-semibold text-slate-500">
+                        {copy.recharge.onchainStatus}
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-slate-900">
+                        {getRechargeVerificationSummary(latestActiveRecharge, locale)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <form
+                    action={submitRechargeProofAction}
+                    className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_240px_auto]"
                   >
-                    {copy.recharge.refetchStatus}
-                  </SubmitButton>
-                </form>
-                {latestActiveRecharge.txHash ? (
-                  <Link
-                    href={
-                      getRechargeExplorerLinks(
-                        latestActiveRecharge.network,
-                        latestActiveRecharge.txHash,
-                        latestActiveRecharge.walletAddress,
-                      ).txUrl
-                    }
-                    target="_blank"
-                    className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600"
-                  >
-                    {copy.recharge.openExplorer}
-                  </Link>
-                ) : null}
-              </div>
+                    <input type="hidden" name="rechargeOrderId" value={latestActiveRecharge.id} />
+                    <input
+                      type="text"
+                      name="txHash"
+                      placeholder={copy.recharge.txHashPlaceholder}
+                      defaultValue={latestActiveRecharge.txHash ?? ""}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-slate-950"
+                    />
+                    <input
+                      type="text"
+                      name="proofNote"
+                      placeholder={copy.recharge.proofNotePlaceholder}
+                      defaultValue={latestActiveRecharge.proofNote ?? ""}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-slate-950"
+                    />
+                    <SubmitButton pendingText={copy.recharge.submitPending} className="h-[50px]">
+                      {copy.recharge.submitAndVerify}
+                    </SubmitButton>
+                  </form>
+
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <form action={recheckRechargeVerificationAction}>
+                      <input type="hidden" name="rechargeOrderId" value={latestActiveRecharge.id} />
+                      <input type="hidden" name="returnTo" value="/recharge" />
+                      <SubmitButton
+                        pendingText={copy.recharge.refetchPending}
+                        className="border border-slate-200 bg-white text-slate-950 hover:bg-slate-50"
+                      >
+                        {copy.recharge.refetchStatus}
+                      </SubmitButton>
+                    </form>
+                    {latestActiveRecharge.txHash ? (
+                      <Link
+                        href={
+                          getRechargeExplorerLinks(
+                            latestActiveRecharge.network,
+                            latestActiveRecharge.txHash,
+                            latestActiveRecharge.walletAddress,
+                          ).txUrl
+                        }
+                        target="_blank"
+                        className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600"
+                      >
+                        {copy.recharge.openExplorer}
+                      </Link>
+                    ) : null}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </section>
@@ -202,7 +274,7 @@ export default async function RechargePage({ searchParams }: RechargePageProps) 
           <div>
             <h2 className="text-2xl font-black text-slate-950">{copy.recharge.listTitle}</h2>
             <p className="mt-2 text-sm text-slate-500">
-              {copy.recharge.listDescription}
+              {pageText.listHint}
             </p>
           </div>
         </div>
@@ -214,6 +286,7 @@ export default async function RechargePage({ searchParams }: RechargePageProps) 
             </div>
           ) : (
             data.rechargeOrders.map((order) => {
+              const isAutoRecharge = order.provider === RechargeProvider.CRYPTOMUS;
               const statusMeta = getRechargeStatusMeta(order.status, locale);
               const verificationMeta = getRechargeVerificationMeta(
                 order.verificationStatus,
@@ -242,77 +315,112 @@ export default async function RechargePage({ searchParams }: RechargePageProps) 
                         >
                           {statusMeta.label}
                         </span>
-                        <span
-                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${verificationMeta.className}`}
-                        >
-                          {verificationMeta.label}
+                        <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                          {providerLabel(order.provider)}
                         </span>
+                        {!isAutoRecharge ? (
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs font-semibold ${verificationMeta.className}`}
+                          >
+                            {verificationMeta.label}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="mt-3 text-sm text-slate-500">
-                        {order.network} · {formatUsdt(order.amountMicros)} USDT ·{" "}
+                        {order.network} / {formatUsdt(order.amountMicros)} USDT /{" "}
                         {formatDate(order.createdAt, locale)}
                       </div>
-                      <div className="mt-2 break-all text-xs text-slate-500">
-                        {copy.recharge.addressLabel}: {order.walletAddress}
-                      </div>
-                      <div className="mt-2 break-all text-xs text-slate-500">
-                        {copy.recharge.txHashLabel}: {order.txHash ?? copy.recharge.unsubmitted}
-                      </div>
+                      {isAutoRecharge ? (
+                        <div className="mt-2 text-xs text-slate-500">
+                          Cryptomus {order.providerStatus ? `/ ${order.providerStatus}` : `/ ${pageText.waitingCallback}`}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="mt-2 break-all text-xs text-slate-500">
+                            {copy.recharge.addressLabel}: {order.walletAddress}
+                          </div>
+                          <div className="mt-2 break-all text-xs text-slate-500">
+                            {copy.recharge.txHashLabel}: {order.txHash ?? copy.recharge.unsubmitted}
+                          </div>
+                        </>
+                      )}
                     </div>
 
                     <div className="grid gap-2 text-sm text-slate-600">
-                      <div>{copy.recharge.confirmations}: {order.verificationConfirmations ?? 0}</div>
-                      <div>
-                        {copy.recharge.checkedAt}:{" "}
-                        {order.verificationCheckedAt
-                          ? formatDate(order.verificationCheckedAt, locale)
-                          : copy.recharge.unchecked}
+                      {isAutoRecharge ? (
+                        <>
+                          <div>{pageText.channel}: Cryptomus</div>
+                          {order.providerPaymentUrl &&
+                          (order.status === "AWAITING_PAYMENT" || order.status === "UNDER_REVIEW") ? (
+                            <Link
+                              href={order.providerPaymentUrl}
+                              className="font-semibold text-slate-950"
+                            >
+                              {pageText.continuePayment}
+                            </Link>
+                          ) : null}
+                        </>
+                      ) : (
+                        <>
+                          <div>{copy.recharge.confirmations}: {order.verificationConfirmations ?? 0}</div>
+                          <div>
+                            {copy.recharge.checkedAt}:{" "}
+                            {order.verificationCheckedAt
+                              ? formatDate(order.verificationCheckedAt, locale)
+                              : copy.recharge.unchecked}
+                          </div>
+                          {links.txUrl ? (
+                            <Link
+                              href={links.txUrl}
+                              target="_blank"
+                              className="font-semibold text-slate-950"
+                            >
+                              {copy.recharge.viewOnchain}
+                            </Link>
+                          ) : null}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {!isAutoRecharge ? (
+                    <>
+                      <div className="mt-4 grid gap-3 md:grid-cols-3">
+                        <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600">
+                          {copy.recharge.verificationLabel}: {getRechargeVerificationSummary(order, locale)}
+                        </div>
+                        <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600">
+                          {copy.recharge.detectedAmount}:{" "}
+                          {order.verificationDetectedAmountMicros !== null
+                            ? `${formatUsdt(order.verificationDetectedAmountMicros)} USDT`
+                            : copy.recharge.unrecognized}
+                        </div>
+                        <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600">
+                          {copy.recharge.detectedAddress}:{" "}
+                          {order.verificationDetectedToAddress || copy.recharge.unrecognized}
+                        </div>
                       </div>
-                      {links.txUrl ? (
-                        <Link
-                          href={links.txUrl}
-                          target="_blank"
-                          className="font-semibold text-slate-950"
-                        >
-                          {copy.recharge.viewOnchain}
-                        </Link>
+
+                      {order.status === "AWAITING_PAYMENT" || order.status === "UNDER_REVIEW" ? (
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          <form action={recheckRechargeVerificationAction}>
+                            <input type="hidden" name="rechargeOrderId" value={order.id} />
+                            <input type="hidden" name="returnTo" value="/recharge" />
+                            <SubmitButton
+                              pendingText={copy.recharge.refetchPending}
+                              className="border border-slate-200 bg-white text-slate-950 hover:bg-slate-50"
+                            >
+                              {copy.recharge.redetect}
+                            </SubmitButton>
+                          </form>
+                          <CopyButton
+                            text={order.walletAddress}
+                            idleLabel={copy.common.copyAddress}
+                            copiedLabel={copy.common.copied}
+                          />
+                        </div>
                       ) : null}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 md:grid-cols-3">
-                    <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600">
-                      {copy.recharge.verificationLabel}: {getRechargeVerificationSummary(order, locale)}
-                    </div>
-                    <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600">
-                      {copy.recharge.detectedAmount}:{" "}
-                      {order.verificationDetectedAmountMicros !== null
-                        ? `${formatUsdt(order.verificationDetectedAmountMicros)} USDT`
-                        : copy.recharge.unrecognized}
-                    </div>
-                    <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600">
-                      {copy.recharge.detectedAddress}: {order.verificationDetectedToAddress || copy.recharge.unrecognized}
-                    </div>
-                  </div>
-
-                  {order.status === "AWAITING_PAYMENT" || order.status === "UNDER_REVIEW" ? (
-                    <div className="mt-4 flex flex-wrap gap-3">
-                      <form action={recheckRechargeVerificationAction}>
-                        <input type="hidden" name="rechargeOrderId" value={order.id} />
-                        <input type="hidden" name="returnTo" value="/recharge" />
-                        <SubmitButton
-                          pendingText={copy.recharge.refetchPending}
-                          className="border border-slate-200 bg-white text-slate-950 hover:bg-slate-50"
-                        >
-                          {copy.recharge.redetect}
-                        </SubmitButton>
-                      </form>
-                      <CopyButton
-                        text={order.walletAddress}
-                        idleLabel={copy.common.copyAddress}
-                        copiedLabel={copy.common.copied}
-                      />
-                    </div>
+                    </>
                   ) : null}
                 </div>
               );

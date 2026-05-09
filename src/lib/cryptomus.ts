@@ -1,10 +1,14 @@
 import crypto from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import { RechargeNetwork } from "@prisma/client";
 import { z } from "zod";
 
 import { env } from "./env";
 import { formatUsdt } from "./money";
+
+const execFileAsync = promisify(execFile);
 
 const invoiceResponseSchema = z.object({
   state: z.number().optional(),
@@ -33,7 +37,7 @@ export type CryptomusWebhookPayload = {
   uuid?: string;
   order_id?: string;
   status?: string;
-  is_final?: boolean;
+  is_final?: boolean | string | number;
   amount?: string;
   payment_amount?: string;
   payer_amount?: string;
@@ -86,24 +90,133 @@ export function verifyCryptomusWebhookSignature(payload: CryptomusWebhookPayload
   return provided.length === expectedBuffer.length && crypto.timingSafeEqual(provided, expectedBuffer);
 }
 
+export function parseSignedCryptomusWebhookBody(bodyText: string) {
+  const payload = JSON.parse(bodyText) as CryptomusWebhookPayload;
+
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Invalid webhook payload.");
+  }
+
+  return payload;
+}
+
+async function postCryptomusJson(
+  path: string,
+  bodyText: string,
+  sign: string,
+): Promise<{ ok: boolean; status: number; payload: unknown }> {
+  const endpoint = `${env.CRYPTOMUS_API_URL.replace(/\/$/, "")}${path}`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        merchant: env.CRYPTOMUS_MERCHANT_UUID,
+        sign,
+      },
+      body: bodyText,
+    });
+
+    const payload = await response.json().catch(() => null);
+
+    if (response.ok || process.platform !== "win32") {
+      return {
+        ok: response.ok,
+        status: response.status,
+        payload,
+      };
+    }
+  } catch (error) {
+    if (process.platform !== "win32") {
+      throw error;
+    }
+  }
+
+  return postCryptomusJsonWithPowerShell(endpoint, bodyText, sign);
+}
+
+async function postCryptomusJsonWithPowerShell(
+  endpoint: string,
+  bodyText: string,
+  sign: string,
+) {
+  const bodyBase64 = Buffer.from(bodyText, "utf8").toString("base64");
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "$body = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:CRYPTOMUS_BODY_BASE64))",
+    "$headers = @{ merchant = $env:CRYPTOMUS_MERCHANT_HEADER; sign = $env:CRYPTOMUS_SIGN_HEADER }",
+    "try {",
+    "  $response = Invoke-WebRequest -Uri $env:CRYPTOMUS_ENDPOINT -Method Post -Headers $headers -ContentType 'application/json' -Body $body -UseBasicParsing -TimeoutSec 30",
+    "  [Console]::Out.Write(($response.StatusCode.ToString() + \"`n\" + $response.Content))",
+    "} catch {",
+    "  if ($_.Exception.Response) {",
+    "    $reader = [IO.StreamReader]::new($_.Exception.Response.GetResponseStream())",
+    "    [Console]::Out.Write(([int]$_.Exception.Response.StatusCode).ToString() + \"`n\" + $reader.ReadToEnd())",
+    "  } else { throw }",
+    "}",
+  ].join("; ");
+
+  const encodedCommand = Buffer.from(script, "utf16le").toString("base64");
+  const { stdout } = await execFileAsync(
+    "powershell",
+    [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
+      encodedCommand,
+    ],
+    {
+      windowsHide: true,
+      timeout: 40_000,
+      maxBuffer: 1024 * 1024,
+      env: {
+        ...process.env,
+        CRYPTOMUS_BODY_BASE64: bodyBase64,
+        CRYPTOMUS_ENDPOINT: endpoint,
+        CRYPTOMUS_MERCHANT_HEADER: env.CRYPTOMUS_MERCHANT_UUID,
+        CRYPTOMUS_SIGN_HEADER: sign,
+      },
+    },
+  );
+  const separatorIndex = stdout.indexOf("\n");
+  const status = Number.parseInt(stdout.slice(0, separatorIndex).trim(), 10);
+  const rawBody = stdout.slice(separatorIndex + 1).trim();
+
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    payload: rawBody ? JSON.parse(rawBody) : null,
+  };
+}
+
 export function isCryptomusConfigured() {
   return Boolean(env.CRYPTOMUS_MERCHANT_UUID && env.CRYPTOMUS_PAYMENT_API_KEY);
 }
 
 export function isCryptomusPaidFinal(payload: Pick<CryptomusWebhookPayload, "status" | "is_final">) {
+  const status = payload.status?.toLowerCase().trim();
+
   return Boolean(
-    payload.is_final === true &&
-      payload.status &&
-      cryptomusSuccessfulStatuses.has(payload.status),
+    isCryptomusFinal(payload.is_final) &&
+      status &&
+      cryptomusSuccessfulStatuses.has(status),
   );
 }
 
 export function isCryptomusFailedFinal(payload: Pick<CryptomusWebhookPayload, "status" | "is_final">) {
+  const status = payload.status?.toLowerCase().trim();
+
   return Boolean(
-    payload.is_final === true &&
-      payload.status &&
-      cryptomusTerminalFailureStatuses.has(payload.status),
+    isCryptomusFinal(payload.is_final) &&
+      status &&
+      cryptomusTerminalFailureStatuses.has(status),
   );
+}
+
+function isCryptomusFinal(value: CryptomusWebhookPayload["is_final"]) {
+  return value === true || value === 1 || value === "1" || value === "true";
 }
 
 export async function createCryptomusInvoice(input: {
@@ -129,30 +242,20 @@ export async function createCryptomusInvoice(input: {
   };
   const bodyText = stableStringify(body);
 
-  const response = await fetch(`${env.CRYPTOMUS_API_URL.replace(/\/$/, "")}/payment`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      merchant: env.CRYPTOMUS_MERCHANT_UUID,
-      sign: signCryptomusBody(bodyText),
-    },
-    body: bodyText,
-  });
-
-  const payload = await response.json().catch(() => null);
+  const response = await postCryptomusJson("/payment", bodyText, signCryptomusBody(bodyText));
 
   if (!response.ok) {
     const message =
-      payload &&
-      typeof payload === "object" &&
-      "message" in payload &&
-      typeof payload.message === "string"
-        ? `: ${payload.message}`
+      response.payload &&
+      typeof response.payload === "object" &&
+      "message" in response.payload &&
+      typeof response.payload.message === "string"
+        ? `: ${response.payload.message}`
         : "";
     throw new Error(`Cryptomus invoice failed: ${response.status}${message}`);
   }
 
-  const parsed = invoiceResponseSchema.safeParse(payload);
+  const parsed = invoiceResponseSchema.safeParse(response.payload);
 
   if (!parsed.success) {
     throw new Error("Cryptomus returned an invalid invoice response.");
@@ -164,6 +267,6 @@ export async function createCryptomusInvoice(input: {
     paymentUrl: parsed.data.result.url ?? parsed.data.result.payment_url ?? "",
     address: parsed.data.result.address ?? "",
     status: parsed.data.result.status ?? "created",
-    raw: JSON.stringify(payload),
+    raw: JSON.stringify(response.payload),
   };
 }

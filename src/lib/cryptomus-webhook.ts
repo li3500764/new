@@ -32,6 +32,44 @@ function parseCryptomusAmountMicros(payload: CryptomusWebhookPayload) {
   }
 }
 
+function normalizeOptionalString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeCurrency(value: unknown) {
+  return normalizeOptionalString(value).toUpperCase();
+}
+
+function normalizeNetwork(value: unknown) {
+  return normalizeOptionalString(value).toLowerCase();
+}
+
+async function rejectCryptomusRecharge(
+  rechargeId: string,
+  data: {
+    providerStatus: string;
+    providerPayload: string;
+    detectedAmountMicros: bigint | null;
+    txHash?: string;
+    message: string;
+  },
+) {
+  await prisma.rechargeOrder.update({
+    where: {
+      id: rechargeId,
+    },
+    data: {
+      providerStatus: data.providerStatus,
+      providerPayload: data.providerPayload,
+      verificationStatus: RechargeVerificationStatus.FAILED,
+      verificationMessage: data.message,
+      verificationCheckedAt: new Date(),
+      verificationDetectedAmountMicros: data.detectedAmountMicros,
+      txHash: data.txHash,
+    },
+  });
+}
+
 export async function processCryptomusWebhook(payload: CryptomusWebhookPayload) {
   if (!verifyCryptomusWebhookSignature(payload)) {
     return { ok: false, status: 401, message: "Invalid signature." };
@@ -54,24 +92,58 @@ export async function processCryptomusWebhook(payload: CryptomusWebhookPayload) 
     return { ok: false, status: 404, message: "Recharge order not found." };
   }
 
+  if (payload.order_id && payload.order_id !== recharge.serialNo) {
+    return { ok: false, status: 409, message: "Payment order id mismatch." };
+  }
+
   if (payload.uuid && recharge.providerPaymentUuid && payload.uuid !== recharge.providerPaymentUuid) {
     return { ok: false, status: 409, message: "Payment uuid mismatch." };
   }
 
-  if (payload.network && payload.network !== getCryptomusNetwork(recharge.network)) {
+  if (
+    payload.network &&
+    normalizeNetwork(payload.network) !== normalizeNetwork(getCryptomusNetwork(recharge.network))
+  ) {
     return { ok: false, status: 409, message: "Payment network mismatch." };
   }
 
-  if (payload.currency && payload.currency !== "USDT") {
+  const currency = normalizeCurrency(payload.currency);
+  const payerCurrency = normalizeCurrency(payload.payer_currency);
+
+  if ((currency && currency !== "USDT") || (payerCurrency && payerCurrency !== "USDT")) {
     return { ok: false, status: 409, message: "Payment currency mismatch." };
   }
 
   const providerPayload = compactPayload(payload);
   const detectedAmountMicros = parseCryptomusAmountMicros(payload);
   const txHash = payload.txid ? String(payload.txid).trim() : undefined;
-  const providerStatus = payload.status ?? "unknown";
+  const providerStatus = payload.status?.toLowerCase().trim() ?? "unknown";
 
   if (isCryptomusPaidFinal(payload)) {
+    if (detectedAmountMicros === null) {
+      await rejectCryptomusRecharge(recharge.id, {
+        providerStatus,
+        providerPayload,
+        detectedAmountMicros,
+        txHash,
+        message: "Cryptomus payment is final, but paid amount was not provided.",
+      });
+
+      return { ok: false, status: 409, message: "Missing paid amount." };
+    }
+
+    if (detectedAmountMicros < recharge.amountMicros) {
+      await rejectCryptomusRecharge(recharge.id, {
+        providerStatus,
+        providerPayload,
+        detectedAmountMicros,
+        txHash,
+        message: "Cryptomus paid amount is lower than the recharge order amount.",
+      });
+
+      return { ok: false, status: 409, message: "Paid amount is too small." };
+    }
+
     try {
       await prisma.$transaction(async (tx) => {
         await tx.rechargeOrder.update({

@@ -59,6 +59,7 @@ import { generateSerial, withQueryMessage } from "@/lib/utils";
 const createRechargeSchema = z.object({
   amount: z.string().trim().min(1),
   network: z.nativeEnum(RechargeNetwork),
+  channel: z.enum(["AUTO", "MANUAL"]).catch("AUTO"),
 });
 
 function createSubmitProofSchema(
@@ -313,6 +314,7 @@ export async function createRechargeOrderAction(formData: FormData) {
   const parsed = createRechargeSchema.safeParse({
     amount: formData.get("amount"),
     network: formData.get("network"),
+    channel: formData.get("channel"),
   });
 
   if (!parsed.success) {
@@ -351,28 +353,43 @@ export async function createRechargeOrderAction(formData: FormData) {
 
   try {
     const serialNo = generateSerial("RC");
-    const invoice = await createCryptomusInvoice({
-      amountMicros,
-      network: parsed.data.network,
-      serialNo,
-    });
 
-    rechargeOrder = await prisma.rechargeOrder.create({
-      data: {
-        serialNo,
-        userId: session.userId,
-        network: parsed.data.network,
-        walletAddress: invoice.address || getRechargeAddress(parsed.data.network),
+    if (parsed.data.channel === "MANUAL") {
+      rechargeOrder = await prisma.rechargeOrder.create({
+        data: {
+          serialNo,
+          userId: session.userId,
+          network: parsed.data.network,
+          walletAddress: getRechargeAddress(parsed.data.network),
+          amountMicros,
+          provider: RechargeProvider.MANUAL,
+          expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 6),
+        },
+      });
+    } else {
+      const invoice = await createCryptomusInvoice({
         amountMicros,
-        provider: RechargeProvider.CRYPTOMUS,
-        providerPaymentUuid: invoice.uuid,
-        providerPaymentUrl: invoice.paymentUrl || null,
-        providerStatus: invoice.status,
-        providerPayload: invoice.raw,
-        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 6),
-      },
-    });
-    paymentUrl = invoice.paymentUrl;
+        network: parsed.data.network,
+        serialNo,
+      });
+
+      rechargeOrder = await prisma.rechargeOrder.create({
+        data: {
+          serialNo,
+          userId: session.userId,
+          network: parsed.data.network,
+          walletAddress: invoice.address || "CRYPTOMUS_AUTO_PAYMENT",
+          amountMicros,
+          provider: RechargeProvider.CRYPTOMUS,
+          providerPaymentUuid: invoice.uuid,
+          providerPaymentUrl: invoice.paymentUrl || null,
+          providerStatus: invoice.status,
+          providerPayload: invoice.raw,
+          expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 6),
+        },
+      });
+      paymentUrl = invoice.paymentUrl;
+    }
   } catch (error) {
     redirect(
       withQueryMessage(
