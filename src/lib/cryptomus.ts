@@ -62,11 +62,15 @@ function stableStringify(payload: unknown) {
   return JSON.stringify(payload).replace(/\//g, "\\/");
 }
 
-export function signCryptomusPayload(payload: unknown, apiKey = env.CRYPTOMUS_PAYMENT_API_KEY) {
+function signCryptomusBody(body: string, apiKey = env.CRYPTOMUS_PAYMENT_API_KEY) {
   return crypto
     .createHash("md5")
-    .update(Buffer.from(stableStringify(payload)).toString("base64") + apiKey)
+    .update(Buffer.from(body).toString("base64") + apiKey)
     .digest("hex");
+}
+
+export function signCryptomusPayload(payload: unknown, apiKey = env.CRYPTOMUS_PAYMENT_API_KEY) {
+  return signCryptomusBody(stableStringify(payload), apiKey);
 }
 
 export function verifyCryptomusWebhookSignature(payload: CryptomusWebhookPayload) {
@@ -123,21 +127,29 @@ export async function createCryptomusInvoice(input: {
     lifetime: 21_600,
     is_payment_multiple: false,
   };
+  const bodyText = stableStringify(body);
 
   const response = await fetch(`${env.CRYPTOMUS_API_URL.replace(/\/$/, "")}/payment`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       merchant: env.CRYPTOMUS_MERCHANT_UUID,
-      sign: signCryptomusPayload(body),
+      sign: signCryptomusBody(bodyText),
     },
-    body: JSON.stringify(body),
+    body: bodyText,
   });
 
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(`Cryptomus invoice failed: ${response.status}`);
+    const message =
+      payload &&
+      typeof payload === "object" &&
+      "message" in payload &&
+      typeof payload.message === "string"
+        ? `: ${payload.message}`
+        : "";
+    throw new Error(`Cryptomus invoice failed: ${response.status}${message}`);
   }
 
   const parsed = invoiceResponseSchema.safeParse(payload);
