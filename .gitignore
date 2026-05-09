@@ -50,3 +50,6 @@ tmp-crazysmm-services.html
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+HOSTINGER_DEPLOY.md
+env.txt

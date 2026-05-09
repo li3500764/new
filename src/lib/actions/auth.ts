@@ -91,7 +91,7 @@ function buildIdentityThrottleKey(scope: string, identity?: string) {
 
 function redirectOnSecurityError(error: unknown, path: string) {
   if (isSecurityThrottleError(error)) {
-    redirect(withQueryMessage(path, "error", error.message));
+    redirect(withQueryMessage(path, "error", error.message, process.env.SITE_URL));
   }
 
   throw error;
@@ -124,7 +124,7 @@ async function runRegistrationStep<T>(
   } catch (error) {
     if (isRegistrationInfrastructureError(error)) {
       console.error("Registration infrastructure error", error);
-      redirect(withQueryMessage("/sign-up", "error", failedMessage));
+      redirect(withQueryMessage("/sign-up", "error", failedMessage, process.env.SITE_URL));
     }
 
     throw error;
@@ -188,6 +188,7 @@ export async function registerAction(formData: FormData) {
         "/sign-up",
         "error",
         parsed.error.issues[0]?.message ?? actionCopy.auth.messages.registerIncomplete,
+        process.env.SITE_URL,
       ),
     );
   }
@@ -221,7 +222,7 @@ export async function registerAction(formData: FormData) {
     }
 
     redirect(
-      withQueryMessage("/sign-up", "error", actionCopy.auth.messages.registerRetry),
+      withQueryMessage("/sign-up", "error", actionCopy.auth.messages.registerRetry, process.env.SITE_URL),
     );
   }
 
@@ -253,7 +254,7 @@ export async function registerAction(formData: FormData) {
       }
 
       redirect(
-        withQueryMessage("/sign-up", "error", actionCopy.auth.messages.inviteCodeMissing),
+        withQueryMessage("/sign-up", "error", actionCopy.auth.messages.inviteCodeMissing, process.env.SITE_URL),
       );
     }
 
@@ -332,14 +333,14 @@ export async function registerAction(formData: FormData) {
       }
 
       redirect(
-        withQueryMessage("/sign-up", "error", actionCopy.auth.messages.registerRetry),
+        withQueryMessage("/sign-up", "error", actionCopy.auth.messages.registerRetry, process.env.SITE_URL),
       );
     }
 
     if (isRegistrationInfrastructureError(error)) {
       console.error("Registration infrastructure error", error);
       redirect(
-        withQueryMessage("/sign-up", "error", actionCopy.auth.messages.registerRetry),
+        withQueryMessage("/sign-up", "error", actionCopy.auth.messages.registerRetry, process.env.SITE_URL),
       );
     }
 
@@ -347,7 +348,7 @@ export async function registerAction(formData: FormData) {
   }
 
   redirect(
-    withQueryMessage("/dashboard", "success", actionCopy.auth.messages.registerSuccess),
+    withQueryMessage("/dashboard", "success", actionCopy.auth.messages.registerSuccess, process.env.SITE_URL),
   );
 }
 
@@ -401,6 +402,7 @@ export async function signInAction(formData: FormData) {
         "/sign-in",
         "error",
         parsed.error.issues[0]?.message ?? actionCopy.auth.messages.signInIncomplete,
+        process.env.SITE_URL,
       ),
     );
   }
@@ -441,7 +443,7 @@ export async function signInAction(formData: FormData) {
     }
 
     redirect(
-      withQueryMessage("/sign-in", "error", actionCopy.auth.messages.invalidCredentials),
+      withQueryMessage("/sign-in", "error", actionCopy.auth.messages.invalidCredentials, process.env.SITE_URL),
     );
   }
 
@@ -459,11 +461,12 @@ export async function signInAction(formData: FormData) {
 
   redirect(
     user.role === "ADMIN"
-      ? withQueryMessage("/admin", "success", actionCopy.auth.messages.adminEntered)
+      ? withQueryMessage("/admin", "success", actionCopy.auth.messages.adminEntered, process.env.SITE_URL)
       : withQueryMessage(
           "/dashboard",
           "success",
           actionCopy.auth.messages.signInSuccess,
+          process.env.SITE_URL,
         ),
   );
 }
@@ -472,5 +475,5 @@ export async function signOutAction() {
   const locale = await getCurrentLocale();
   const actionCopy = getActionCopy(locale);
   await clearSession();
-  redirect(withQueryMessage("/", "success", actionCopy.auth.messages.signedOut));
+  redirect(withQueryMessage("/", "success", actionCopy.auth.messages.signedOut, process.env.SITE_URL));
 }

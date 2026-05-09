@@ -1,122 +1,390 @@
-# Hostinger hPanel Deployment
+# Hostinger Deployment Runbook
 
-This project is now prepared for Hostinger as a `Node.js / Next.js` app.
+This document records the deployment path that actually worked on Hostinger for
+`vc5444.com`.
 
-## What Changed
+The important lesson: do not build this app on Hostinger. The shared Node.js
+environment has low process/thread limits, and `next build`, Turbopack, Tailwind,
+PostCSS, and Prisma schema engine can fail or hang with `EAGAIN`. Build locally,
+upload the runtime package, and only run lightweight commands remotely.
 
-- Prisma datasource switched from `sqlite` to `mysql`
-- `prisma/push.ts` now uses standard `prisma db push`
-- `prisma/seed.ts` now also creates product categories
-- Added `hostinger:init` script:
+## Server
+
+```text
+SSH: ssh -p 65002 u335205377@145.79.25.77
+App directory: ~/domains/vc5444.com/nodejs
+Node path: /opt/alt/alt-nodejs24/root/usr/bin
+Domain: https://vc5444.com/
+```
+
+Use this PATH in remote SSH sessions:
 
 ```bash
-npm run hostinger:init
+export PATH="/opt/alt/alt-nodejs24/root/usr/bin:$PATH"
 ```
 
-- Added deployment env templates:
-  - `.env.example`
-  - `.env.hostinger.test`
+When npm hangs or behaves oddly, call Hostinger's npm CLI directly:
 
-## Files You Should Use
+```bash
+node /opt/alt/alt-nodejs24/root/usr/lib/node_modules/npm/bin/npm-cli.js --version
+node /opt/alt/alt-nodejs24/root/usr/lib/node_modules/npm/bin/npm-cli.js install
+```
 
-- Use `.env.hostinger.test` as the first test deployment template
-- Replace values later with real production credentials
+## Current Working Strategy
 
-## hPanel Setup
+1. Build locally with Webpack, not Turbopack.
+2. Create a small runtime zip that includes `.next`, `src`, `public`, `prisma`,
+   config files, `package.json`, and `package-lock.json`.
+3. Upload with `sftp`, not `scp` and not text/chunk streaming.
+4. Verify the zip checksum and `unzip -t` on the server.
+5. Extract the zip into `~/domains/vc5444.com/nodejs`.
+6. Ensure remote `.env` has `DATABASE_URL` using `127.0.0.1`, not `localhost`.
+7. Do not run remote `next build`.
+8. If Prisma `db push` hangs, generate SQL locally and apply it with MySQL CLI.
+9. Run `npm run db:seed`.
+10. Patch or preserve `server.js` so the Node app loads the deployed `.env`
+    before `next` starts.
+11. Restart the Hostinger Node app and verify the domain returns `HTTP 200`.
 
-### 1. Create Database
+## Local Build
 
-In Hostinger hPanel:
+From the local project root:
 
-- Websites
-- Manage
-- Databases
-- MySQL Databases
+```bash
+cd /Users/djyt/wenjian/coding/new
+npm install
+npm run build -- --webpack
+```
 
-Create:
+Build succeeded locally with Next.js `16.2.2` and Webpack.
 
-- database name
-- database user
-- database password
+Do not use Hostinger for this build step.
 
-Host is usually:
+## Runtime Zip
+
+Create a small deployable zip:
+
+```bash
+cd /Users/djyt/wenjian/coding/new
+rm -f hostinger-runtime-build-small.zip
+zip -r hostinger-runtime-build-small.zip \
+  .next \
+  src \
+  public \
+  prisma \
+  package.json \
+  package-lock.json \
+  next.config.ts \
+  postcss.config.mjs \
+  tsconfig.json \
+  next-env.d.ts \
+  eslint.config.mjs \
+  -x ".next/cache/*" ".next/dev/*" "prisma/dev.db"
+```
+
+Verify locally:
+
+```bash
+shasum -a 256 hostinger-runtime-build-small.zip
+unzip -t hostinger-runtime-build-small.zip | tail -5
+```
+
+The successful upload on 2026-04-23 had this SHA-256:
 
 ```text
-localhost
+d6eb03fdb9959ab1c73e6621cc1087043267a235afdb9ce7c6bc149245fc2d27
 ```
 
-### 2. Prepare Environment Variables
+The exact hash changes whenever code changes.
 
-Start from:
+## Upload
+
+Use `sftp`; it worked reliably where `scp` and chunked SSH uploads did not.
+
+```bash
+sftp -o StrictHostKeyChecking=no \
+  -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no \
+  -P 65002 \
+  u335205377@145.79.25.77
+```
+
+Inside `sftp`:
 
 ```text
-.env.hostinger.test
+cd domains/vc5444.com/nodejs
+put /Users/djyt/wenjian/coding/new/hostinger-runtime-build-small.zip hostinger-runtime-build-small.good.zip
+bye
 ```
 
-Update at least these fields before deployment:
+Remote verification:
+
+```bash
+cd ~/domains/vc5444.com/nodejs
+ls -lh hostinger-runtime-build-small.good.zip
+sha256sum hostinger-runtime-build-small.good.zip
+unzip -t hostinger-runtime-build-small.good.zip | tail -8
+```
+
+Only extract after `unzip -t` succeeds:
+
+```bash
+cd ~/domains/vc5444.com/nodejs
+mkdir -p ../nodejs-backups
+tar -czf ../nodejs-backups/pre-runtime-$(date +%Y%m%d-%H%M%S).tar.gz \
+  package.json prisma src .next 2>/dev/null || true
+unzip -o hostinger-runtime-build-small.good.zip
+```
+
+Verify build output:
+
+```bash
+test -f .next/BUILD_ID && cat .next/BUILD_ID
+ls -lh .next/server/app/page.js .next/static/css/*.css
+```
+
+## Environment
+
+Remote app directory needs a `.env` file:
+
+```text
+~/domains/vc5444.com/nodejs/.env
+```
+
+Important database fix:
 
 ```env
-DATABASE_URL=mysql://DB_USER:DB_PASSWORD@localhost:3306/DB_NAME
-SITE_URL=https://your-domain.com
-SERVER_ACTION_ALLOWED_ORIGINS=your-domain.com,www.your-domain.com
-CRAZYSMM_API_KEY=your_real_key
-ADMIN_EMAIL=your_admin_email
-ADMIN_PASSWORD=your_real_admin_password
+DATABASE_URL="mysql://USER:PASSWORD@127.0.0.1:3306/DB_NAME"
 ```
 
-Do not keep the test secrets for real production.
+Do not use `localhost` for this project on Hostinger. In this environment,
+Prisma failed with `localhost:3306`, while `127.0.0.1:3306` worked.
 
-## Suggested Hostinger Commands
+If Hostinger's deployment config also has the old value, update it too:
 
-If Hostinger asks for build/start commands, use:
+```text
+~/domains/vc5444.com/public_html/.builds/config/.env
+```
 
-### Install
+Set permissions:
 
 ```bash
-npm install
+chmod 600 ~/domains/vc5444.com/nodejs/.env
 ```
 
-### Database Init
-
-Run once after environment variables are ready:
+Test the DB connection without exposing secrets:
 
 ```bash
-npm run hostinger:init
+cd ~/domains/vc5444.com/nodejs
+export PATH="/opt/alt/alt-nodejs24/root/usr/bin:$PATH"
+node -r dotenv/config -e 'console.log(process.env.DATABASE_URL ? "DATABASE_URL present" : "DATABASE_URL missing")'
 ```
 
-This will:
+## Database Initialization
+
+First try the normal seed only if schema already exists:
 
 ```bash
-npm run db:push
-npm run db:seed
+cd ~/domains/vc5444.com/nodejs
+export PATH="/opt/alt/alt-nodejs24/root/usr/bin:$PATH"
+node /opt/alt/alt-nodejs24/root/usr/lib/node_modules/npm/bin/npm-cli.js run db:seed
 ```
 
-### Build
+The full `npm run hostinger:init` can hang because `prisma db push` starts the
+Prisma schema engine, which may hit Hostinger resource limits. If it hangs for
+more than a few minutes, stop it:
 
 ```bash
-npm run build
+ps -u $(whoami) -o pid,etime,stat,cmd | grep -E "prisma|db:push|schema-engine" | grep -v grep
+kill <pid> <pid> <pid>
 ```
 
-### Start
+### SQL Fallback That Worked
+
+Generate SQL locally:
 
 ```bash
-npm run start
+cd /Users/djyt/wenjian/coding/new
+npx prisma migrate diff \
+  --from-empty \
+  --to-schema-datamodel prisma/schema.prisma \
+  --script > /tmp/xinglian_schema.sql
 ```
 
-## Important Notes
+Upload `/tmp/xinglian_schema.sql` to the remote app directory with `sftp`.
 
-- This app needs a MySQL database before first launch
-- Do not use SQLite on Hostinger for this project
-- The admin account is created by the seed script
-- Product categories are also created by the seed script
-- After deployment, log in with the admin credentials from your env file
+Apply it remotely with MySQL CLI. Use a small Node helper so secrets are read
+from `.env` and not printed:
 
-## Recommended First Deployment Order
+```js
+// apply_schema_remote.js
+const fs = require("fs");
+const { spawnSync } = require("child_process");
 
-1. Create MySQL database in Hostinger
-2. Import env values from `.env.hostinger.test`
-3. Deploy the app
-4. Run `npm run hostinger:init`
-5. Open the site
-6. Log in to admin
-7. Replace all test secrets and wallet addresses with real values
+const line = fs.readFileSync(".env", "utf8")
+  .split(/\r?\n/)
+  .find((item) => item.startsWith("DATABASE_URL="));
+const raw = line.slice("DATABASE_URL=".length).trim().replace(/^['"]|['"]$/g, "");
+const url = new URL(raw);
+const sql = fs.readFileSync("xinglian_schema.sql", "utf8");
+
+const result = spawnSync("/usr/bin/mysql", [
+  "--connect-timeout=10",
+  "-h", url.hostname,
+  "-P", url.port || "3306",
+  "-u", decodeURIComponent(url.username),
+  `-p${decodeURIComponent(url.password)}`,
+  url.pathname.slice(1),
+], {
+  input: sql,
+  encoding: "utf8",
+  timeout: 120000,
+});
+
+if (result.status !== 0) {
+  console.error(result.stderr || result.stdout);
+  process.exit(result.status || 1);
+}
+
+console.log("Schema SQL applied");
+```
+
+Run remotely:
+
+```bash
+cd ~/domains/vc5444.com/nodejs
+export PATH="/opt/alt/alt-nodejs24/root/usr/bin:$PATH"
+node apply_schema_remote.js
+rm -f apply_schema_remote.js xinglian_schema.sql
+```
+
+Then run seed:
+
+```bash
+node /opt/alt/alt-nodejs24/root/usr/lib/node_modules/npm/bin/npm-cli.js run db:seed
+```
+
+Successful seed output:
+
+```text
+Seeded 14 products and 2 categories.
+Admin account: admin@vc5444.com
+```
+
+Verify data:
+
+```sql
+SELECT "users" AS name, COUNT(*) AS count FROM `User`
+UNION ALL SELECT "products", COUNT(*) FROM `Product`
+UNION ALL SELECT "categories", COUNT(*) FROM `ProductCategory`
+UNION ALL SELECT "wallets", COUNT(*) FROM `Wallet`;
+```
+
+Successful result:
+
+```text
+users       1
+products   14
+categories 2
+wallets    1
+```
+
+## Required Remote Script Patches
+
+### `prisma/seed.js`
+
+The CommonJS seed script must load `.env` before creating `PrismaClient`.
+
+At the top of `prisma/seed.js`:
+
+```js
+const { PrismaClient } = require("@prisma/client");
+const fs = require("node:fs");
+const bcrypt = require("bcryptjs");
+
+if (fs.existsSync(".env")) {
+  for (const line of fs.readFileSync(".env", "utf8").split(/\r?\n/)) {
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match || process.env[match[1]]) continue;
+    process.env[match[1]] = match[2].trim().replace(/^['"]|['"]$/g, "");
+  }
+}
+```
+
+### `server.js`
+
+Hostinger may inject stale hPanel env values before starting Node. The generated
+`server.js` in the remote app directory was patched to load project `.env` after
+`process.chdir(__dirname)` and before `require("next")`.
+
+Patch:
+
+```js
+// Hostinger may inject stale panel env values; prefer the project .env deployed with the app.
+try {
+  const fs = require('fs')
+  const envPath = path.join(__dirname, '.env')
+  if (fs.existsSync(envPath)) {
+    for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+      const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/)
+      if (!match) continue
+      process.env[match[1]] = match[2].trim().replace(/^['"]|['"]$/g, '')
+    }
+  }
+} catch (err) {
+  console.error('Failed to load .env:', err)
+}
+```
+
+If a future deploy overwrites `server.js`, reapply this patch or update the
+hPanel environment variables so they exactly match the project `.env`.
+
+## Restart And Verify
+
+Restart from Hostinger hPanel if available. If using SSH, killing the current
+`next-server` process lets Hostinger restart it:
+
+```bash
+ps -u $(whoami) -o pid,etime,cmd | grep "next-server" | grep -v grep
+kill <pid>
+```
+
+Verify:
+
+```bash
+curl -I https://vc5444.com/
+curl -L -sS https://vc5444.com/ | sed -n "1,12p"
+```
+
+Successful result:
+
+```text
+HTTP/2 200
+```
+
+The body should contain product data such as:
+
+```text
+GPT Plus 共享席位
+商品服务目录
+```
+
+## Known Failure Modes
+
+- `Couldn't find any pages or app directory`: remote upload/extract missed `src`.
+- Turbopack panic with Rayon or `EAGAIN`: Hostinger resource/thread limit.
+- Webpack fails around `next/font/google`: remote build worker/process limit.
+- Tailwind/PostCSS fails with `EAGAIN`: remote build worker/process limit.
+- `P1001 Can't reach database server at localhost:3306`: use `127.0.0.1`.
+- Prisma seed says `DATABASE_URL` missing: `prisma/seed.js` did not load `.env`.
+- Site returns `HTTP 500` but DB works from SSH: running Node process has stale
+  hPanel env; patch `server.js` or update hPanel env, then restart.
+
+## Security Reminder
+
+After any support session where credentials were shared:
+
+- Change SSH password.
+- Change MySQL password and update `.env`.
+- Change admin password.
+- Rotate API keys if they were exposed.
