@@ -10,10 +10,13 @@ import { AlertBanner } from "@/components/alert-banner";
 import { PaginationNav } from "@/components/pagination-nav";
 import { SubmitButton } from "@/components/submit-button";
 import {
+  addProductCredentialsAction,
+  createCouponAction,
   upsertProductAction,
   upsertProductCategoryAction,
 } from "@/lib/actions/admin";
 import {
+  getAdminCouponsData,
   getAdminProductCategoriesData,
   getAdminProductsData,
 } from "@/lib/data";
@@ -463,6 +466,14 @@ function ProductEditor({
               <label className="inline-flex items-center gap-2">
                 <input
                   type="checkbox"
+                  name="autoDeliverStock"
+                  defaultChecked={defaults?.autoDeliverStock ?? false}
+                />
+                账号库存自动交付
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
                   name="upstreamSupportsCancel"
                   defaultChecked={defaults?.upstreamSupportsCancel ?? false}
                 />
@@ -499,6 +510,7 @@ export default async function AdminProductsPage({
   const uiCopy = pageCopy[locale];
   const products = await getAdminProductsData();
   const categories = await getAdminProductCategoriesData();
+  const coupons = await getAdminCouponsData();
   const activeFilter = getStatusFromQuery(firstValue(params.status));
   const productStatusLabel: Record<ProductStatus, string> = {
     ACTIVE: copy.admin.products.statuses.active,
@@ -663,6 +675,105 @@ export default async function AdminProductsPage({
             </div>
           </div>
         </details>
+
+        <div className="grid gap-4 border-b border-slate-200 bg-white px-5 py-5 lg:grid-cols-2 sm:px-6">
+          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-[13px] font-semibold text-slate-950">优惠券管理</div>
+            <p className="mt-1 text-[11px] leading-6 text-slate-500">
+              可创建全站优惠券、按分类优惠券、或绑定到单个商品。百分比填写 10 表示 10%，固定金额填写 USDT 数字。
+            </p>
+            <form action={createCouponAction} className="mt-4 grid gap-3 md:grid-cols-2">
+              <input name="code" required placeholder="优惠码，例如 VIP10" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]" />
+              <input name="title" placeholder="内部备注，可选" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]" />
+              <select name="discountType" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]">
+                <option value="PERCENT">百分比优惠</option>
+                <option value="FIXED">固定金额优惠</option>
+              </select>
+              <input name="discountValue" required placeholder="优惠值，例如 10 或 5" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]" />
+              <input name="minOrder" placeholder="最低订单金额，可选" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]" />
+              <input name="maxDiscount" placeholder="最大优惠金额，可选" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]" />
+              <input name="usageLimit" placeholder="总使用次数，可选" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]" />
+              <select name="productId" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]">
+                <option value="">不限商品</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name}
+                  </option>
+                ))}
+              </select>
+              <select name="categoryName" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]">
+                <option value="">不限分类（全站可用）</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.name}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+              <label className="inline-flex items-center gap-2 text-[13px] text-slate-600">
+                <input type="checkbox" name="isActive" defaultChecked />
+                启用优惠券
+              </label>
+              <SubmitButton pendingText="保存中..." className="justify-center">
+                保存优惠券
+              </SubmitButton>
+            </form>
+            <div className="mt-4 space-y-2">
+              {coupons.length === 0 ? (
+                <div className="rounded-xl bg-white px-3 py-3 text-[12px] text-slate-500">暂无优惠券。</div>
+              ) : (
+                coupons.slice(0, 6).map((coupon) => (
+                  <div key={coupon.id} className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-[12px]">
+                    <span className="font-semibold text-slate-900">{coupon.code}</span>
+                    <span className="text-slate-500">
+                      {coupon.product?.name ?? "全站"} / 已用 {coupon.usedCount}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-[13px] font-semibold text-slate-950">账号库存自动交付</div>
+            <p className="mt-1 text-[11px] leading-6 text-slate-500">
+              用于“买一个号自动获得账号”。一行一个账号/密码/密钥，下单扣款成功后系统自动发给用户并标记已交付。
+            </p>
+            <form action={addProductCredentialsAction} className="mt-4 space-y-3">
+              <select name="productId" required className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]">
+                <option value="">选择商品</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name}
+                  </option>
+                ))}
+              </select>
+              <textarea
+                name="stockText"
+                rows={6}
+                placeholder="一行一个账号，例如 user@example.com----password"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]"
+              />
+              <SubmitButton pendingText="导入中..." className="w-full justify-center">
+                导入账号库存
+              </SubmitButton>
+            </form>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {products.filter((product) => product._count.credentials > 0 || product.autoDeliverStock).slice(0, 8).map((product) => (
+                <div key={product.id} className="rounded-xl bg-white px-3 py-2 text-[12px] text-slate-600">
+                  <span className="font-semibold text-slate-900">{product.name}</span>
+                  <span className="ml-2">可用库存 {product._count.credentials}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <section className="border-b border-slate-200 bg-sky-50/50 px-5 py-5 text-[12px] leading-6 text-slate-600 sm:px-6">
+          <div className="text-[13px] font-semibold text-slate-950">CrazySMM API 对接说明</div>
+          <p className="mt-2">
+            在服务器环境变量填写 CRAZYSMM_API_KEY 后，把商品的履约模式改为 CRAZYSMM，填写上游 Service ID，并按接口类型选择 DEFAULT / CUSTOM_COMMENTS / SUBSCRIPTIONS。用户下单时系统会自动扣余额并提交到上游；如果上游返回可恢复错误，订单会进入人工处理。
+          </p>
+        </section>
 
         <div className="hidden grid-cols-[76px_minmax(0,2.6fr)_112px_74px_74px_132px_minmax(0,1.15fr)_86px] gap-4 bg-[#dbeafe] px-5 py-3 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-700 lg:grid">
           <div>{copy.home.table.id}</div>

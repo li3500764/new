@@ -6,6 +6,7 @@ import {
   cancelUpstreamOrderAction,
   syncUpstreamOrderAction,
   updateOrderStatusAction,
+  addOrderMessageAction,
 } from "@/lib/actions/admin";
 import { getAdminOrdersData } from "@/lib/data";
 import { getFulfillmentCopy } from "@/lib/fulfillment-copy";
@@ -35,6 +36,7 @@ export default async function AdminOrdersPage({
     FULFILLED: copy.admin.orders.statusLabels.fulfilled,
     REFUNDED: copy.admin.orders.statusLabels.refunded,
     CANCELLED: copy.admin.orders.statusLabels.cancelled,
+    REJECTED: "已驳回",
   };
 
   return (
@@ -51,7 +53,8 @@ export default async function AdminOrdersPage({
 
       <section className="space-y-4">
         {orders.map((order) => (
-          <form key={order.id} action={updateOrderStatusAction} className="panel p-6">
+          <div key={order.id} className="space-y-2">
+          <form action={updateOrderStatusAction} className="panel p-6">
             <input type="hidden" name="orderId" value={order.id} />
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div>
@@ -93,6 +96,30 @@ export default async function AdminOrdersPage({
                 </div>
               ))}
             </div>
+
+            {order.messages && order.messages.length > 0 ? (
+              <div className="mt-4 space-y-2">
+                <div className="text-sm font-semibold text-slate-700">订单留言记录</div>
+                {order.messages.map((msg: { id: string; authorRole: string; body: string; createdAt: Date; author?: { displayName: string } | null }) => (
+                  <div
+                    key={msg.id}
+                    className={`rounded-2xl px-4 py-3 text-sm ${
+                      msg.authorRole === "ADMIN"
+                        ? "bg-sky-50 text-sky-800 border border-sky-100"
+                        : "bg-amber-50 text-amber-800 border border-amber-100"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                      <span className="font-semibold">
+                        {msg.authorRole === "ADMIN" ? "管理员" : `用户: ${msg.author?.displayName || "匿名"}`}
+                      </span>
+                      <span>{formatDate(msg.createdAt, locale)}</span>
+                    </div>
+                    <div>{msg.body}</div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             <div className="mt-5 grid gap-4 xl:grid-cols-[220px_1fr_auto]">
               <select
@@ -142,6 +169,23 @@ export default async function AdminOrdersPage({
               </div>
             ) : null}
           </form>
+
+          <form action={addOrderMessageAction} className="panel mt-2 p-4">
+            <input type="hidden" name="orderId" value={order.id} />
+            <div className="text-sm font-semibold text-slate-700 mb-2">管理员留言</div>
+            <div className="grid gap-3 xl:grid-cols-[1fr_auto]">
+              <input
+                type="text"
+                name="body"
+                placeholder="给客户留言，例如：请补充账号信息"
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+              />
+              <SubmitButton pendingText="发送中..." className="h-[50px]">
+                发送留言
+              </SubmitButton>
+            </div>
+          </form>
+          </div>
         ))}
       </section>
     </>

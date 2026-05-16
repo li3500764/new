@@ -29,7 +29,7 @@ export const publicPageCopy = {
         },
         {
           title: "退款问题",
-          body: "符合退款条件的订单会退回平台余额，提现申请由后台审核后处理。",
+          body: "符合退款条件的订单会退回平台余额，请通过邮箱或 Telegram 联系客服。",
         },
       ],
     },
@@ -93,7 +93,7 @@ export const publicPageCopy = {
         },
         {
           title: "Refund Issues",
-          body: "Eligible refunds are returned to platform balance. Withdrawal requests are reviewed by the admin team.",
+          body: "Eligible refunds are returned to platform balance. Contact support via email or Telegram for assistance.",
         },
       ],
     },
@@ -111,7 +111,7 @@ export const publicPageCopy = {
       title: "Privacy Policy",
       subtitle: "We only collect information needed for accounts, payments, orders, and support.",
       sections: [
-        ["Information We Collect", "We may collect email, order remarks, recharge records, withdrawal addresses, and security logs."],
+        ["Information We Collect", "We may collect email, order remarks, recharge records, and security logs."],
         ["How We Use It", "Information is used for login, order processing, balance crediting, risk controls, and customer support."],
         ["Data Protection", "Sensitive credentials and payment keys are stored in server environment variables and are not shown to regular users."],
         ["Third Party Services", "Payment processing may be handled by providers such as Cryptomus and follows their service rules."],
@@ -123,7 +123,7 @@ export const publicPageCopy = {
       sections: [
         ["Eligible Refunds", "Orders may be refunded when processing has not started, delivery is unavailable, or admin review confirms cancellation."],
         ["Non-refundable Cases", "Completed orders, incorrect user-provided information, or services already in progress are usually not refundable."],
-        ["Processing Method", "Refunds are recorded in the account ledger. Users may submit withdrawal requests from the account page."],
+        ["Processing Method", "Refunds are recorded in the account ledger. Contact support for further assistance."],
         ["Appeals", "For questions about a decision, contact support by email or Telegram with the order number."],
       ],
     },

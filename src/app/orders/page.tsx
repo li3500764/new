@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { AlertBanner } from "@/components/alert-banner";
 import { SubmitButton } from "@/components/submit-button";
 import { OrderProgress, getOrderStatusMeta } from "@/components/order-progress";
-import { syncOrderUpstreamAction } from "@/lib/actions/shop";
+import { syncOrderUpstreamAction, addUserOrderMessageAction } from "@/lib/actions/shop";
 import { requireSession } from "@/lib/auth";
 import { getOrdersPageData } from "@/lib/data";
 import { getFulfillmentCopy } from "@/lib/fulfillment-copy";
@@ -154,6 +154,43 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
                         {copy.orders.fulfillmentNoteLabel}: {order.fulfillmentNote}
                       </div>
                     ) : null}
+
+                    {order.messages && order.messages.length > 0 ? (
+                      <div className="space-y-2">
+                        <div className="text-sm font-semibold text-slate-700">订单留言</div>
+                        {order.messages.map((msg: { id: string; authorRole: string; body: string; createdAt: Date; author?: { displayName: string } | null }) => (
+                          <div
+                            key={msg.id}
+                            className={`rounded-2xl px-4 py-3 text-sm ${
+                              msg.authorRole === "ADMIN"
+                                ? "bg-sky-50 text-sky-800 border border-sky-100"
+                                : "bg-slate-50 text-slate-700 border border-slate-100"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                              <span className="font-semibold">
+                                {msg.authorRole === "ADMIN" ? "管理员" : msg.author?.displayName || "用户"}
+                              </span>
+                              <span>{formatDate(msg.createdAt, locale)}</span>
+                            </div>
+                            <div>{msg.body}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <form action={addUserOrderMessageAction} className="grid gap-3 xl:grid-cols-[1fr_auto]">
+                      <input type="hidden" name="orderId" value={order.id} />
+                      <input
+                        type="text"
+                        name="body"
+                        placeholder="回复管理员或补充资料..."
+                        className="rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+                      />
+                      <SubmitButton pendingText="发送中..." className="h-[50px]">
+                        发送
+                      </SubmitButton>
+                    </form>
                   </div>
                 </details>
               );

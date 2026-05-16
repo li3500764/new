@@ -12,7 +12,7 @@ const envSchema = z.object({
   RATE_LIMIT_SECRET: optionalString,
   SITE_URL: z.string().url().default("http://localhost:3000"),
   SERVER_ACTION_ALLOWED_ORIGINS: optionalHosts,
-  SUPPORT_EMAIL: z.string().email().default("support@vc5444.com"),
+  SUPPORT_EMAIL: z.string().email().default("zszy982@gmail.com"),
   SUPPORT_TELEGRAM: optionalString,
   SUPPORT_HOURS: z.string().min(1).default("10:00-22:00 UTC+8"),
   CRAZYSMM_API_URL: z.string().url().default("https://crazysmm.com/api/v2"),

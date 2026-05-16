@@ -2,7 +2,6 @@ import {
   OrderStatus,
   ProductStatus,
   RechargeStatus,
-  WithdrawalStatus,
 } from "@prisma/client";
 
 import { getSession } from "./auth";
@@ -98,12 +97,6 @@ export async function getDashboardData(userId: string) {
         },
         take: 12,
       },
-      withdrawalRequests: {
-        orderBy: {
-          createdAt: "desc",
-        },
-        take: 12,
-      },
       walletEntries: {
         orderBy: {
           createdAt: "desc",
@@ -185,6 +178,18 @@ export async function getOrdersPageData(userId: string) {
       orders: {
         include: {
           product: true,
+          messages: {
+            include: {
+              author: {
+                select: {
+                  displayName: true,
+                },
+              },
+            },
+            orderBy: {
+              createdAt: "asc",
+            },
+          },
         },
         orderBy: {
           createdAt: "desc",
@@ -203,10 +208,8 @@ export async function getAdminDashboardData() {
     productCount,
     pendingRecharges,
     pendingOrders,
-    pendingWithdrawals,
     latestRecharges,
     latestOrders,
-    latestWithdrawals,
   ] = await prisma.$transaction([
     prisma.user.count(),
     prisma.product.count({
@@ -226,11 +229,6 @@ export async function getAdminDashboardData() {
         status: {
           in: [OrderStatus.PENDING, OrderStatus.PROCESSING],
         },
-      },
-    }),
-    prisma.withdrawalRequest.count({
-      where: {
-        status: WithdrawalStatus.PENDING,
       },
     }),
     prisma.rechargeOrder.findMany({
@@ -268,20 +266,6 @@ export async function getAdminDashboardData() {
       },
       take: 8,
     }),
-    prisma.withdrawalRequest.findMany({
-      include: {
-        user: {
-          select: {
-            displayName: true,
-            email: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-      take: 8,
-    }),
   ]);
 
   return {
@@ -289,10 +273,8 @@ export async function getAdminDashboardData() {
     productCount,
     pendingRecharges,
     pendingOrders,
-    pendingWithdrawals,
     latestRecharges,
     latestOrders,
-    latestWithdrawals,
   };
 }
 
@@ -302,11 +284,54 @@ export async function getAdminProductsData() {
       _count: {
         select: {
           orders: true,
+          coupons: true,
+          credentials: {
+            where: {
+              status: "AVAILABLE",
+            },
+          },
         },
       },
     },
     orderBy: [{ status: "asc" }, { sortOrder: "asc" }, { createdAt: "desc" }],
   });
+}
+
+export async function getAdminCouponsData() {
+  return prisma.coupon.findMany({
+    include: {
+      product: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: 50,
+  });
+}
+
+export async function getAdminSiteTextsData() {
+  return prisma.siteText.findMany({
+    orderBy: [{ textKey: "asc" }, { locale: "asc" }],
+    take: 200,
+  });
+}
+
+export async function getSiteTextValues(locale: string) {
+  const rows = await prisma.siteText.findMany({
+    where: {
+      locale,
+    },
+  });
+
+  return rows.reduce<Record<string, string>>((map, row) => {
+    map[row.textKey] = row.value;
+    return map;
+  }, {});
 }
 
 export async function getAdminProductCategoriesData() {
@@ -462,92 +487,24 @@ export async function getAdminOrdersData() {
           displayName: true,
         },
       },
+      messages: {
+        include: {
+          author: {
+            select: {
+              displayName: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+      },
     },
     orderBy: {
       createdAt: "desc",
     },
     take: 50,
   });
-}
-
-export async function getAdminWithdrawalsData() {
-  return prisma.withdrawalRequest.findMany({
-    include: {
-      user: {
-        select: {
-          displayName: true,
-          email: true,
-        },
-      },
-      reviewer: {
-        select: {
-          displayName: true,
-        },
-      },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-    take: 80,
-  });
-}
-
-export async function getAdminWithdrawalsPage(page: number, pageSize: number) {
-  const safePageSize = Math.max(1, pageSize);
-  const [totalCount, pendingCount, approvedCount, rejectedCount] =
-    await prisma.$transaction([
-    prisma.withdrawalRequest.count(),
-    prisma.withdrawalRequest.count({
-      where: {
-        status: WithdrawalStatus.PENDING,
-      },
-    }),
-    prisma.withdrawalRequest.count({
-      where: {
-        status: WithdrawalStatus.APPROVED,
-      },
-    }),
-    prisma.withdrawalRequest.count({
-      where: {
-        status: WithdrawalStatus.REJECTED,
-      },
-    }),
-    ]);
-
-  const pageCount = Math.max(1, Math.ceil(totalCount / safePageSize));
-  const currentPage = Math.min(Math.max(1, page), pageCount);
-  const skip = (currentPage - 1) * safePageSize;
-
-  const items = await prisma.withdrawalRequest.findMany({
-      include: {
-        user: {
-          select: {
-            displayName: true,
-            email: true,
-          },
-        },
-        reviewer: {
-          select: {
-            displayName: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-      skip,
-      take: safePageSize,
-    });
-
-  return {
-    totalCount,
-    currentPage,
-    pageCount,
-    pendingCount,
-    approvedCount,
-    rejectedCount,
-    items,
-  };
 }
 
 export async function getAdminUsersData() {
@@ -565,7 +522,6 @@ export async function getAdminUsersData() {
           referrals: true,
           orders: true,
           rechargeOrders: true,
-          withdrawalRequests: true,
         },
       },
     },
@@ -597,7 +553,6 @@ export async function getAdminUsersPage(page: number, pageSize: number) {
             referrals: true,
             orders: true,
             rechargeOrders: true,
-            withdrawalRequests: true,
           },
         },
       },

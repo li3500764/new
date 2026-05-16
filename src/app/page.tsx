@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { AlertBanner } from "@/components/alert-banner";
 import { ServiceList } from "@/components/service-list";
-import { getHomepageData, getViewer } from "@/lib/data";
+import { getHomepageData, getSiteTextValues, getViewer } from "@/lib/data";
 import { getMarketingCopy } from "@/lib/i18n";
 import { getCurrentLocale } from "@/lib/i18n-server";
 import { formatUsdt } from "@/lib/money";
@@ -80,10 +80,11 @@ export default async function Home({ searchParams }: HomePageProps) {
   const locale = await getCurrentLocale();
   const copy = getMarketingCopy(locale);
   const viewer = await getViewer();
+  const textOverrides = await getSiteTextValues(locale);
   const { products } = await getHomepageData();
 
   const localizedProducts = products.map((product) =>
-    getLocalizedProduct(product, locale),
+    getLocalizedProduct(product, locale, textOverrides),
   );
   const categories = Array.from(
     new Set(localizedProducts.map((product) => product.category)),
@@ -161,13 +162,13 @@ export default async function Home({ searchParams }: HomePageProps) {
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
             <div className="text-[11px] font-semibold tracking-[0.08em] text-slate-500">
-              {copy.home.eyebrow}
+              {textOverrides["home.service.badge"] || copy.home.eyebrow}
             </div>
             <h1 className="mt-3 text-2xl font-black text-slate-950 sm:text-3xl">
-              {copy.home.title}
+              {textOverrides["home.hero.title"] || copy.home.title}
             </h1>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              {copy.home.description}
+              {textOverrides["home.hero.subtitle"] || copy.home.description}
             </p>
           </div>
 

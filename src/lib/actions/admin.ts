@@ -2,15 +2,14 @@
 
 import {
   CommissionStatus,
-  LedgerDirection,
-  LedgerType,
+  CouponDiscountType,
+  ProductCredentialStatus,
   ProductFulfillmentMode,
   ProductStatus,
   RechargeStatus,
   RechargeVerificationStatus,
   OrderDeliveryType,
   OrderStatus,
-  WithdrawalStatus,
   UpstreamProvider,
   UpstreamServiceType,
   UpstreamSubmissionStatus,
@@ -42,8 +41,6 @@ import {
   serializeUpstreamResponse,
   syncCrazysmmOrderStatus,
 } from "@/lib/upstream-order-service";
-import { validateWithdrawalTxHash } from "@/lib/withdrawal";
-import { getWithdrawalCopy } from "@/lib/withdrawal-copy";
 import { generateSerial, slugify, withQueryMessage } from "@/lib/utils";
 
 const DEFAULT_LISTING_MIN = 1;
@@ -148,6 +145,7 @@ function createProductSchema(
     upstreamServiceType: z.nativeEnum(UpstreamServiceType).optional(),
     upstreamSupportsCancel: z.boolean().default(false),
     upstreamSupportsRefill: z.boolean().default(false),
+    autoDeliverStock: z.boolean().default(false),
     sortOrder: z.coerce.number().int().min(0).max(9999),
     status: z.nativeEnum(ProductStatus),
   });
@@ -174,13 +172,6 @@ const updateOrderSchema = z.object({
 
 const syncUpstreamOrderSchema = z.object({
   orderId: z.string().trim().min(1),
-});
-
-const reviewWithdrawalSchema = z.object({
-  withdrawalRequestId: z.string().trim().min(1),
-  decision: z.enum(["APPROVE", "REJECT"]),
-  reviewNote: z.string().trim().max(200).optional(),
-  txHash: z.string().trim().max(128).optional(),
 });
 
 const categoryActionCopy = {
@@ -359,6 +350,7 @@ export async function upsertProductAction(formData: FormData) {
     upstreamServiceType: formData.get("upstreamServiceType") || undefined,
     upstreamSupportsCancel: formData.get("upstreamSupportsCancel") === "on",
     upstreamSupportsRefill: formData.get("upstreamSupportsRefill") === "on",
+    autoDeliverStock: formData.get("autoDeliverStock") === "on",
     sortOrder: formData.get("sortOrder"),
     status: formData.get("status"),
   });
@@ -502,6 +494,7 @@ export async function upsertProductAction(formData: FormData) {
       listingMin: normalizedListingMin,
       listingMax: parsed.data.listingMax ?? null,
       listingAverageTime: normalizedListingAverageTime,
+      autoDeliverStock: parsed.data.autoDeliverStock,
       ...upstreamData,
       sortOrder: parsed.data.sortOrder,
       status: parsed.data.status,
@@ -521,6 +514,7 @@ export async function upsertProductAction(formData: FormData) {
       listingMin: normalizedListingMin,
       listingMax: parsed.data.listingMax ?? null,
       listingAverageTime: normalizedListingAverageTime,
+      autoDeliverStock: parsed.data.autoDeliverStock,
       ...upstreamData,
       sortOrder: parsed.data.sortOrder,
       status: parsed.data.status,
@@ -607,6 +601,181 @@ export async function upsertProductCategoryAction(formData: FormData) {
   revalidatePath("/");
   revalidatePath("/admin/products");
   redirect(withQueryMessage("/admin/products", "success", categoryCopy.saved));
+}
+
+const couponSchema = z.object({
+  code: z.string().trim().min(2).max(64),
+  title: z.string().trim().max(80).optional(),
+  discountType: z.nativeEnum(CouponDiscountType),
+  discountValue: z.string().trim().min(1),
+  minOrder: z.string().trim().optional(),
+  maxDiscount: z.string().trim().optional(),
+  usageLimit: z.coerce.number().int().min(1).max(1_000_000).optional(),
+  productId: z.string().trim().optional(),
+  categoryName: z.string().trim().optional(),
+  isActive: z.boolean().default(true),
+});
+
+export async function createCouponAction(formData: FormData) {
+  await requireAdminSession();
+  const parsed = couponSchema.safeParse({
+    code: formData.get("code"),
+    title: formData.get("title") || undefined,
+    discountType: formData.get("discountType"),
+    discountValue: formData.get("discountValue"),
+    minOrder: formData.get("minOrder") || undefined,
+    maxDiscount: formData.get("maxDiscount") || undefined,
+    usageLimit: formData.get("usageLimit") || undefined,
+    productId: formData.get("productId") || undefined,
+    categoryName: formData.get("categoryName") || undefined,
+    isActive: formData.get("isActive") === "on",
+  });
+
+  if (!parsed.success) {
+    redirect(withQueryMessage("/admin/products", "error", "优惠券参数不完整。"));
+  }
+
+  let discountValue: number;
+  try {
+    discountValue =
+      parsed.data.discountType === CouponDiscountType.PERCENT
+        ? Math.round(Number(parsed.data.discountValue) * 100)
+        : Number(parseUsdt(parsed.data.discountValue) / 1_000_000n);
+  } catch {
+    redirect(withQueryMessage("/admin/products", "error", "优惠券金额或比例不合法。"));
+  }
+
+  if (!Number.isFinite(discountValue) || discountValue <= 0) {
+    redirect(withQueryMessage("/admin/products", "error", "优惠券优惠值必须大于 0。"));
+  }
+
+  const minOrderMicros = parsed.data.minOrder ? parseUsdt(parsed.data.minOrder) : 0n;
+  const maxDiscountMicros = parsed.data.maxDiscount
+    ? parseUsdt(parsed.data.maxDiscount)
+    : null;
+
+  await prisma.coupon.upsert({
+    where: {
+      code: parsed.data.code.toUpperCase(),
+    },
+    update: {
+      title: parsed.data.title || null,
+      discountType: parsed.data.discountType,
+      discountValue,
+      minOrderMicros,
+      maxDiscountMicros,
+      usageLimit: parsed.data.usageLimit ?? null,
+      productId: parsed.data.productId || null,
+      categoryName: parsed.data.categoryName || null,
+      isActive: parsed.data.isActive,
+    },
+    create: {
+      code: parsed.data.code.toUpperCase(),
+      title: parsed.data.title || null,
+      discountType: parsed.data.discountType,
+      discountValue,
+      minOrderMicros,
+      maxDiscountMicros,
+      usageLimit: parsed.data.usageLimit ?? null,
+      productId: parsed.data.productId || null,
+      categoryName: parsed.data.categoryName || null,
+      isActive: parsed.data.isActive,
+    },
+  });
+
+  revalidatePath("/admin/products");
+  revalidatePath("/");
+  redirect(withQueryMessage("/admin/products", "success", "优惠券已保存。"));
+}
+
+export async function addProductCredentialsAction(formData: FormData) {
+  await requireAdminSession();
+  const productId = String(formData.get("productId") ?? "").trim();
+  const stockText = String(formData.get("stockText") ?? "").trim();
+
+  if (!productId || !stockText) {
+    redirect(withQueryMessage("/admin/products", "error", "请选择商品并填写账号库存。"));
+  }
+
+  const lines = stockText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 500);
+
+  if (!lines.length) {
+    redirect(withQueryMessage("/admin/products", "error", "账号库存不能为空。"));
+  }
+
+  await prisma.productCredential.createMany({
+    data: lines.map((secret) => ({
+      productId,
+      secret,
+      status: ProductCredentialStatus.AVAILABLE,
+    })),
+  });
+
+  await prisma.product.update({
+    where: {
+      id: productId,
+    },
+    data: {
+      autoDeliverStock: true,
+    },
+  });
+
+  revalidatePath("/admin/products");
+  redirect(withQueryMessage("/admin/products", "success", `已导入 ${lines.length} 条账号库存。`));
+}
+
+const siteTextSchema = z.object({
+  textKey: z.string().trim().min(2).max(80),
+  zh: z.string().trim().max(2000).optional(),
+  en: z.string().trim().max(2000).optional(),
+  ko: z.string().trim().max(2000).optional(),
+});
+
+export async function upsertSiteTextAction(formData: FormData) {
+  await requireAdminSession();
+  const parsed = siteTextSchema.safeParse({
+    textKey: formData.get("textKey"),
+    zh: formData.get("zh") || undefined,
+    en: formData.get("en") || undefined,
+    ko: formData.get("ko") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirect(withQueryMessage("/admin/settings", "error", "文案参数不完整。"));
+  }
+
+  for (const locale of ["zh", "en", "ko"] as const) {
+    const value = parsed.data[locale];
+
+    if (!value) {
+      continue;
+    }
+
+    await prisma.siteText.upsert({
+      where: {
+        textKey_locale: {
+          textKey: parsed.data.textKey,
+          locale,
+        },
+      },
+      update: {
+        value,
+      },
+      create: {
+        textKey: parsed.data.textKey,
+        locale,
+        value,
+      },
+    });
+  }
+
+  revalidatePath("/");
+  revalidatePath("/admin/settings");
+  redirect(withQueryMessage("/admin/settings", "success", "站点文案已保存。"));
 }
 
 export async function reviewRechargeAction(formData: FormData) {
@@ -890,169 +1059,6 @@ export async function reviewRechargeAction(formData: FormData) {
       "/admin/recharges",
       "success",
       actionCopy.admin.messages.rechargeReviewed,
-    ),
-  );
-}
-
-export async function reviewWithdrawalAction(formData: FormData) {
-  const requestContext = await getRequestContext();
-  const locale = await getCurrentLocale();
-  const actionCopy = getActionCopy(locale);
-  const securityCopy = getSecurityCopy(locale);
-  const withdrawalCopy = getWithdrawalCopy(locale);
-  const admin = await requireAdminSession();
-  const parsed = reviewWithdrawalSchema.safeParse({
-    withdrawalRequestId: formData.get("withdrawalRequestId"),
-    decision: formData.get("decision"),
-    reviewNote: formData.get("reviewNote") || undefined,
-    txHash: formData.get("txHash") || undefined,
-  });
-
-  if (!parsed.success) {
-    redirect(withQueryMessage("/admin/withdrawals", "error", actionCopy.admin.messages.reviewParamsInvalid));
-  }
-
-  let txHash: string | undefined;
-  if (parsed.data.decision === "APPROVE") {
-    try {
-      txHash = validateWithdrawalTxHash(parsed.data.txHash || "", locale);
-    } catch (error) {
-      redirect(
-        withQueryMessage(
-          "/admin/withdrawals",
-          "error",
-          resolveErrorMessage(error, withdrawalCopy.messages.invalidTxHash),
-        ),
-      );
-    }
-  }
-
-  try {
-    await consumeRateLimits(
-      [
-        {
-          scope: "admin.withdrawals.review.user",
-          subject: `user:${admin.userId}`,
-        },
-        ...(requestContext.ip !== "unknown"
-          ? [
-              {
-                scope: "admin.withdrawals.review.ip",
-                subject: `ip:${requestContext.ip}`,
-              },
-            ]
-          : []),
-      ],
-      throttlePolicies.adminMutation,
-      securityCopy.adminTooManyAttempts,
-    );
-
-    await prisma.$transaction(async (tx) => {
-      const withdrawal = await tx.withdrawalRequest.findUnique({
-        where: {
-          id: parsed.data.withdrawalRequestId,
-        },
-        include: {
-          user: {
-            include: {
-              wallet: true,
-            },
-          },
-        },
-      });
-
-      if (!withdrawal) {
-        throw new Error(withdrawalCopy.messages.requestMissing);
-      }
-
-      if (withdrawal.status !== WithdrawalStatus.PENDING) {
-        throw new Error(withdrawalCopy.messages.requestProcessed);
-      }
-
-      if (!withdrawal.user.wallet) {
-        throw new Error(actionCopy.admin.messages.userWalletMissing);
-      }
-
-      if (parsed.data.decision === "REJECT") {
-        const walletBefore = withdrawal.user.wallet.balanceMicros;
-
-        await tx.withdrawalRequest.update({
-          where: {
-            id: withdrawal.id,
-          },
-          data: {
-            status: WithdrawalStatus.REJECTED,
-            reviewNote: parsed.data.reviewNote,
-            reviewerId: admin.userId,
-            reviewedAt: new Date(),
-          },
-        });
-
-        await tx.wallet.update({
-          where: {
-            id: withdrawal.user.wallet.id,
-          },
-          data: {
-            balanceMicros: {
-              increment: withdrawal.amountMicros,
-            },
-            version: {
-              increment: 1,
-            },
-          },
-        });
-
-        await tx.walletLedger.create({
-          data: {
-            entryKey: `withdrawal-reject:${withdrawal.id}`,
-            walletId: withdrawal.user.wallet.id,
-            userId: withdrawal.userId,
-            withdrawalRequestId: withdrawal.id,
-            createdById: admin.userId,
-            type: LedgerType.WITHDRAWAL_REJECT,
-            direction: LedgerDirection.CREDIT,
-            amountMicros: withdrawal.amountMicros,
-            balanceBeforeMicros: walletBefore,
-            balanceAfterMicros: walletBefore + withdrawal.amountMicros,
-            note: `Withdrawal rejected: ${withdrawal.serialNo}`,
-          },
-        });
-
-        return;
-      }
-
-      await tx.withdrawalRequest.update({
-        where: {
-          id: withdrawal.id,
-        },
-        data: {
-          status: WithdrawalStatus.APPROVED,
-          txHash,
-          reviewNote: parsed.data.reviewNote,
-          reviewerId: admin.userId,
-          reviewedAt: new Date(),
-        },
-      });
-    });
-  } catch (error) {
-    redirect(
-      withQueryMessage(
-        "/admin/withdrawals",
-        "error",
-        resolveErrorMessage(error, actionCopy.common.processingFailed),
-      ),
-    );
-  }
-
-  revalidatePath("/dashboard");
-  revalidatePath("/admin");
-  revalidatePath("/admin/withdrawals");
-  revalidatePath("/admin/users");
-  redirect(
-    withQueryMessage(
-      "/admin/withdrawals",
-      "success",
-      withdrawalCopy.messages.requestReviewed,
     ),
   );
 }
@@ -1349,4 +1355,90 @@ export async function cancelUpstreamOrderAction(formData: FormData) {
   revalidatePath("/dashboard");
   revalidatePath("/admin/orders");
   redirect(withQueryMessage("/admin/orders", "success", fulfillmentCopy.messages.upstreamCancelled));
+}
+
+const orderMessageSchema = z.object({
+  orderId: z.string().trim().min(1),
+  body: z.string().trim().min(1).max(1000),
+});
+
+export async function addOrderMessageAction(formData: FormData) {
+  const admin = await requireAdminSession();
+  const parsed = orderMessageSchema.safeParse({
+    orderId: formData.get("orderId"),
+    body: formData.get("body"),
+  });
+
+  if (!parsed.success) {
+    redirect(withQueryMessage("/admin/orders", "error", "留言内容不能为空。"));
+  }
+
+  const order = await prisma.order.findUnique({
+    where: { id: parsed.data.orderId },
+    select: { id: true },
+  });
+
+  if (!order) {
+    redirect(withQueryMessage("/admin/orders", "error", "订单不存在。"));
+  }
+
+  await prisma.orderMessage.create({
+    data: {
+      orderId: parsed.data.orderId,
+      authorId: admin.userId,
+      authorRole: "ADMIN",
+      body: parsed.data.body,
+    },
+  });
+
+  revalidatePath("/orders");
+  revalidatePath("/admin/orders");
+  redirect(withQueryMessage("/admin/orders", "success", "留言已发送。"));
+}
+
+const productTranslationFields = ["name", "subtitle", "description", "deliveryNote", "tags"] as const;
+
+export async function upsertProductTranslationAction(formData: FormData) {
+  await requireAdminSession();
+  const productId = String(formData.get("productId") ?? "").trim();
+
+  if (!productId) {
+    redirect(withQueryMessage("/admin/settings", "error", "商品 ID 缺失。"));
+  }
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { slug: true },
+  });
+
+  if (!product) {
+    redirect(withQueryMessage("/admin/settings", "error", "商品不存在。"));
+  }
+
+  for (const locale of ["en", "ko"] as const) {
+    for (const field of productTranslationFields) {
+      const value = String(formData.get(`${locale}_${field}`) ?? "").trim();
+      const textKey = `product.${product.slug}.${field}`;
+
+      if (!value) {
+        // Delete if empty so it falls back to Chinese
+        await prisma.siteText.deleteMany({
+          where: { textKey, locale },
+        });
+        continue;
+      }
+
+      await prisma.siteText.upsert({
+        where: {
+          textKey_locale: { textKey, locale },
+        },
+        update: { value },
+        create: { textKey, locale, value },
+      });
+    }
+  }
+
+  revalidatePath("/");
+  revalidatePath("/admin/settings");
+  redirect(withQueryMessage("/admin/settings", "success", `商品「${product.slug}」翻译已保存。`));
 }

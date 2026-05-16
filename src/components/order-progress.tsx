@@ -150,6 +150,21 @@ function getProgressSteps(
     ] satisfies ProgressStep[];
   }
 
+  if (status === OrderStatus.REJECTED) {
+    return [
+      { title: copy.created, description: copy.createdDesc, state: "completed" },
+      {
+        title: deliveryType === OrderDeliveryType.CRAZYSMM ? copy.submitted : copy.manualQueue,
+        description:
+          deliveryType === OrderDeliveryType.CRAZYSMM
+            ? copy.submittedDesc
+            : copy.manualQueueDesc,
+        state: "completed",
+      },
+      { title: locale === "zh" ? "已驳回" : locale === "ko" ? "반려됨" : "Rejected", description: locale === "zh" ? "管理员已驳回此订单，请查看留言补充资料后重新提交。" : locale === "ko" ? "관리자가 주문을 반려했습니다. 메시지를 확인하세요." : "The admin rejected this order. Check messages for details.", state: "cancelled" },
+    ] satisfies ProgressStep[];
+  }
+
   if (deliveryType === OrderDeliveryType.CRAZYSMM) {
     const submitState: StepState =
       submissionStatus === UpstreamSubmissionStatus.SUBMITTED
@@ -288,6 +303,12 @@ export function getOrderStatusMeta(
         label: copy.statusCancelled,
         summary: copy.statusCancelledDesc,
         className: "border-rose-200 bg-rose-50 text-rose-700",
+      };
+    case OrderStatus.REJECTED:
+      return {
+        label: locale === "zh" ? "已驳回" : locale === "ko" ? "반려됨" : "Rejected",
+        summary: locale === "zh" ? "管理员已驳回，请查看留言。" : locale === "ko" ? "관리자가 반려했습니다." : "Rejected by admin. Check messages.",
+        className: "border-orange-200 bg-orange-50 text-orange-700",
       };
     default:
       return {

@@ -336,7 +336,15 @@ const productTranslations: Record<string, Record<Exclude<Locale, "zh">, Localize
   },
 };
 
-export function getLocalizedProduct(product: Product, locale: Locale) {
+export function getLocalizedProduct(product: Product, locale: Locale, dbOverrides?: Record<string, string>) {
+  // Database overrides take priority over hardcoded translations
+  const prefix = `product.${product.slug}`;
+  const dbName = dbOverrides?.[`${prefix}.name`];
+  const dbSubtitle = dbOverrides?.[`${prefix}.subtitle`];
+  const dbDescription = dbOverrides?.[`${prefix}.description`];
+  const dbDeliveryNote = dbOverrides?.[`${prefix}.deliveryNote`];
+  const dbTags = dbOverrides?.[`${prefix}.tags`];
+
   const translated =
     locale === "zh" ? null : productTranslations[product.slug]?.[locale];
 
@@ -346,11 +354,13 @@ export function getLocalizedProduct(product: Product, locale: Locale) {
       translated?.category ??
       categoryTranslations[product.category]?.[locale] ??
       product.category,
-    name: translated?.name ?? product.name,
-    subtitle: translated?.subtitle ?? product.subtitle,
-    summary: translated?.summary ?? product.summary,
-    description: translated?.description ?? product.description,
-    deliveryNote: translated?.deliveryNote ?? product.deliveryNote,
-    tags: translated?.tags ?? product.tags.split("|").filter(Boolean),
+    name: dbName || translated?.name || product.name,
+    subtitle: dbSubtitle || translated?.subtitle || product.subtitle,
+    summary: dbDescription || translated?.summary || product.summary,
+    description: dbDescription || translated?.description || product.description,
+    deliveryNote: dbDeliveryNote || translated?.deliveryNote || product.deliveryNote,
+    tags: dbTags
+      ? dbTags.split("|").filter(Boolean)
+      : translated?.tags ?? product.tags.split("|").filter(Boolean),
   };
 }

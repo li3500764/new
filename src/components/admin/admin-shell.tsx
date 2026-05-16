@@ -5,12 +5,11 @@ import {
   ReceiptText,
   ShoppingBag,
   Users,
-  Wallet,
+  Settings,
 } from "lucide-react";
 
 import { getMarketingCopy } from "@/lib/i18n";
 import { getCurrentLocale } from "@/lib/i18n-server";
-import { getWithdrawalCopy } from "@/lib/withdrawal-copy";
 
 type AdminShellProps = {
   children: React.ReactNode;
@@ -19,7 +18,6 @@ type AdminShellProps = {
 export async function AdminShell({ children }: AdminShellProps) {
   const locale = await getCurrentLocale();
   const copy = getMarketingCopy(locale);
-  const withdrawalCopy = getWithdrawalCopy(locale);
   const items = [
     {
       href: "/admin",
@@ -42,14 +40,14 @@ export async function AdminShell({ children }: AdminShellProps) {
       icon: ShoppingBag,
     },
     {
-      href: "/admin/withdrawals",
-      label: withdrawalCopy.admin.navLabel,
-      icon: Wallet,
-    },
-    {
       href: "/admin/users",
       label: copy.admin.shell.nav.users,
       icon: Users,
+    },
+    {
+      href: "/admin/settings",
+      label: "站点设置",
+      icon: Settings,
     },
   ];
 

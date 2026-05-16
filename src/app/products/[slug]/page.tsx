@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { AlertBanner } from "@/components/alert-banner";
 import { SubmitButton } from "@/components/submit-button";
 import { placeOrderAction } from "@/lib/actions/shop";
-import { getProductBySlug, getViewer } from "@/lib/data";
+import { getProductBySlug, getSiteTextValues, getViewer } from "@/lib/data";
 import { getFulfillmentCopy } from "@/lib/fulfillment-copy";
 import { getMarketingCopy } from "@/lib/i18n";
 import { getCurrentLocale } from "@/lib/i18n-server";
@@ -34,7 +34,8 @@ export default async function ProductDetailPage({
     notFound();
   }
 
-  const product = getLocalizedProduct(rawProduct, locale);
+  const textOverrides = await getSiteTextValues(locale);
+  const product = getLocalizedProduct(rawProduct, locale, textOverrides);
   const orderForm = getOrderFormConfig(rawProduct);
 
   return (
@@ -287,6 +288,17 @@ export default async function ProductDetailPage({
                   ) : null}
                 </div>
               ) : null}
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  优惠券
+                </label>
+                <input
+                  name="couponCode"
+                  placeholder="如有优惠券可填写"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-950"
+                />
+              </div>
 
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
