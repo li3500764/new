@@ -1,15 +1,16 @@
 "use server";
 
 import {
+  CouponDiscountType,
   LedgerDirection,
   LedgerType,
   OrderDeliveryType,
   OrderStatus,
+  ProductCredentialStatus,
   ProductStatus,
   RechargeProvider,
   RechargeNetwork,
   RechargeStatus,
-  WithdrawalStatus,
   UpstreamProvider,
   UpstreamServiceType,
   UpstreamSubmissionStatus,
@@ -26,7 +27,7 @@ import { createCryptomusInvoice } from "@/lib/cryptomus";
 import { env } from "@/lib/env";
 import { getFulfillmentCopy } from "@/lib/fulfillment-copy";
 import { getCurrentLocale } from "@/lib/i18n-server";
-import { parseUsdt } from "@/lib/money";
+import { calculateByBasisPoints, parseUsdt } from "@/lib/money";
 import {
   buildStoredUpstreamRequest,
   isAutomatedProduct,
@@ -52,8 +53,6 @@ import {
   serializeUpstreamResponse,
   syncCrazysmmOrderStatus,
 } from "@/lib/upstream-order-service";
-import { validateWithdrawalAddress } from "@/lib/withdrawal";
-import { getWithdrawalCopy } from "@/lib/withdrawal-copy";
 import { generateSerial, withQueryMessage } from "@/lib/utils";
 
 const createRechargeSchema = z.object({
@@ -83,18 +82,12 @@ const recheckSchema = z.object({
 
 const placeOrderSchema = z.object({
   productId: z.string().trim().min(1),
+  couponCode: z.string().trim().max(64).optional(),
 });
 
 const syncOrderSchema = z.object({
   orderId: z.string().trim().min(1),
   returnTo: z.string().trim().optional(),
-});
-
-const createWithdrawalSchema = z.object({
-  amount: z.string().trim().min(1),
-  network: z.nativeEnum(RechargeNetwork),
-  walletAddress: z.string().trim().min(10).max(128),
-  userNote: z.string().trim().max(200).optional(),
 });
 
 function resolveErrorMessage(error: unknown, fallback: string) {
@@ -103,176 +96,6 @@ function resolveErrorMessage(error: unknown, fallback: string) {
   }
 
   return fallback;
-}
-
-export async function createWithdrawalRequestAction(formData: FormData) {
-  const session = await requireSession();
-  const requestContext = await getRequestContext();
-  const locale = await getCurrentLocale();
-  const actionCopy = getActionCopy(locale);
-  const securityCopy = getSecurityCopy(locale);
-  const withdrawalCopy = getWithdrawalCopy(locale);
-
-  if (session.role === "ADMIN") {
-    redirect(withQueryMessage("/admin/withdrawals", "error", withdrawalCopy.user.unavailableForAdmin));
-  }
-
-  try {
-    await consumeRateLimits(
-      [
-        {
-          scope: "shop.withdrawal.create.user",
-          subject: `user:${session.userId}`,
-        },
-        ...(requestContext.ip !== "unknown"
-          ? [
-              {
-                scope: "shop.withdrawal.create.ip",
-                subject: `ip:${requestContext.ip}`,
-              },
-            ]
-          : []),
-      ],
-      throttlePolicies.placeOrder,
-      securityCopy.orderTooManyAttempts,
-    );
-  } catch (error) {
-    redirect(
-      withQueryMessage(
-        "/dashboard",
-        "error",
-        resolveErrorMessage(error, securityCopy.orderTooManyAttempts),
-      ),
-    );
-  }
-
-  const parsed = createWithdrawalSchema.safeParse({
-    amount: formData.get("amount"),
-    network: formData.get("network"),
-    walletAddress: formData.get("walletAddress"),
-    userNote: formData.get("userNote") || undefined,
-  });
-
-  if (!parsed.success) {
-    redirect(withQueryMessage("/dashboard", "error", actionCopy.common.invalidAmount));
-  }
-
-  let amountMicros: bigint;
-  try {
-    amountMicros = parseUsdt(parsed.data.amount);
-  } catch {
-    redirect(withQueryMessage("/dashboard", "error", actionCopy.common.invalidAmount));
-  }
-
-  if (amountMicros < 1_000_000n) {
-    redirect(withQueryMessage("/dashboard", "error", withdrawalCopy.messages.amountTooSmall));
-  }
-
-  let walletAddress: string;
-  try {
-    walletAddress = validateWithdrawalAddress(
-      parsed.data.network,
-      parsed.data.walletAddress,
-      locale,
-    );
-  } catch (error) {
-    redirect(
-      withQueryMessage(
-        "/dashboard",
-        "error",
-        resolveErrorMessage(error, withdrawalCopy.messages.invalidAddress),
-      ),
-    );
-  }
-
-  const withdrawalSerial = generateSerial("WD");
-
-  try {
-    await prisma.$transaction(async (tx) => {
-      const wallet = await tx.wallet.findUnique({
-        where: {
-          userId: session.userId,
-        },
-      });
-
-      if (!wallet) {
-        throw new Error(actionCopy.shop.messages.walletMissing);
-      }
-
-      if (wallet.balanceMicros < amountMicros) {
-        throw new Error(withdrawalCopy.messages.amountInsufficient);
-      }
-
-      const updated = await tx.wallet.updateMany({
-        where: {
-          id: wallet.id,
-          version: wallet.version,
-          balanceMicros: {
-            gte: amountMicros,
-          },
-        },
-        data: {
-          balanceMicros: {
-            decrement: amountMicros,
-          },
-          version: {
-            increment: 1,
-          },
-        },
-      });
-
-      if (updated.count !== 1) {
-        throw new Error(actionCopy.shop.messages.balanceChanged);
-      }
-
-      const withdrawalRequest = await tx.withdrawalRequest.create({
-        data: {
-          serialNo: withdrawalSerial,
-          userId: session.userId,
-          network: parsed.data.network,
-          walletAddress,
-          amountMicros,
-          userNote: parsed.data.userNote,
-          status: WithdrawalStatus.PENDING,
-        },
-      });
-
-      await tx.walletLedger.create({
-        data: {
-          entryKey: `withdrawal-request:${withdrawalRequest.id}`,
-          walletId: wallet.id,
-          userId: session.userId,
-          withdrawalRequestId: withdrawalRequest.id,
-          type: LedgerType.WITHDRAWAL_REQUEST,
-          direction: LedgerDirection.DEBIT,
-          amountMicros,
-          balanceBeforeMicros: wallet.balanceMicros,
-          balanceAfterMicros: wallet.balanceMicros - amountMicros,
-          note: `Withdrawal request: ${withdrawalRequest.serialNo}`,
-        },
-      });
-    });
-  } catch (error) {
-    redirect(
-      withQueryMessage(
-        "/dashboard",
-        "error",
-        resolveErrorMessage(error, actionCopy.common.submitFailed),
-      ),
-    );
-  }
-
-  revalidatePath("/dashboard");
-  revalidatePath("/admin");
-  revalidatePath("/admin/withdrawals");
-  revalidatePath("/admin/users");
-  redirect(
-    withQueryMessage(
-      "/dashboard",
-      "success",
-      withdrawalCopy.messages.requestCreated(withdrawalSerial),
-    ),
-  );
 }
 
 export async function createRechargeOrderAction(formData: FormData) {
@@ -631,6 +454,28 @@ export async function recheckRechargeVerificationAction(formData: FormData) {
   redirect(withQueryMessage(returnTo, "success", actionCopy.shop.messages.recheckSuccess));
 }
 
+function normalizeCouponCode(value?: string) {
+  const normalized = (value ?? "").trim().toUpperCase();
+  return normalized || undefined;
+}
+
+function calculateCouponDiscount(
+  discountType: CouponDiscountType,
+  discountValue: number,
+  priceMicros: bigint,
+  maxDiscountMicros: bigint | null,
+) {
+  const rawDiscount =
+    discountType === CouponDiscountType.PERCENT
+      ? calculateByBasisPoints(priceMicros, discountValue)
+      : BigInt(discountValue) * 1_000_000n;
+  const capped = maxDiscountMicros && rawDiscount > maxDiscountMicros
+    ? maxDiscountMicros
+    : rawDiscount;
+
+  return capped >= priceMicros ? priceMicros - 1_000_000n : capped;
+}
+
 export async function placeOrderAction(formData: FormData) {
   const session = await requireSession();
   const requestContext = await getRequestContext();
@@ -640,6 +485,7 @@ export async function placeOrderAction(formData: FormData) {
   const securityCopy = getSecurityCopy(locale);
   const parsed = placeOrderSchema.safeParse({
     productId: formData.get("productId"),
+    couponCode: formData.get("couponCode") || undefined,
   });
 
   if (!parsed.success) {
@@ -684,6 +530,8 @@ export async function placeOrderAction(formData: FormData) {
       throw new Error(fulfillmentCopy.messages.upstreamCredentialsMissing);
     }
 
+    const couponCode = normalizeCouponCode(parsed.data.couponCode);
+
     const order = await prisma.$transaction(async (tx) => {
       const wallet = await tx.wallet.findUnique({
         where: {
@@ -695,7 +543,71 @@ export async function placeOrderAction(formData: FormData) {
         throw new Error(actionCopy.shop.messages.walletMissing);
       }
 
-      if (wallet.balanceMicros < product.priceMicros) {
+      let coupon:
+        | {
+            id: string;
+            code: string;
+            discountType: CouponDiscountType;
+            discountValue: number;
+            minOrderMicros: bigint;
+            maxDiscountMicros: bigint | null;
+            usageLimit: number | null;
+            usedCount: number;
+            startsAt: Date | null;
+            expiresAt: Date | null;
+            isActive: boolean;
+            productId: string | null;
+            categoryName: string | null;
+          }
+        | null = null;
+      let discountMicros = 0n;
+
+      if (couponCode) {
+        coupon = await tx.coupon.findUnique({
+          where: {
+            code: couponCode,
+          },
+        });
+        const now = new Date();
+
+        const productMismatch = coupon?.productId && coupon.productId !== product.id;
+        const categoryMismatch = coupon?.categoryName && coupon.categoryName !== product.category;
+        const scopeMismatch = productMismatch || categoryMismatch;
+
+        if (
+          !coupon ||
+          !coupon.isActive ||
+          scopeMismatch ||
+          coupon.minOrderMicros > product.priceMicros ||
+          (coupon.usageLimit !== null && coupon.usedCount >= coupon.usageLimit) ||
+          (coupon.startsAt && coupon.startsAt > now) ||
+          (coupon.expiresAt && coupon.expiresAt < now)
+        ) {
+          throw new Error("优惠券不可用或不满足使用条件。");
+        }
+
+        discountMicros = calculateCouponDiscount(
+          coupon.discountType,
+          coupon.discountValue,
+          product.priceMicros,
+          coupon.maxDiscountMicros,
+        );
+
+        await tx.coupon.update({
+          where: {
+            id: coupon.id,
+          },
+          data: {
+            usedCount: {
+              increment: 1,
+            },
+          },
+        });
+      }
+
+      const payableMicros = product.priceMicros - discountMicros;
+
+      if (wallet.balanceMicros < payableMicros) {
         throw new Error(actionCopy.shop.messages.balanceInsufficient);
       }
 
@@ -704,12 +616,12 @@ export async function placeOrderAction(formData: FormData) {
           id: wallet.id,
           version: wallet.version,
           balanceMicros: {
-            gte: product.priceMicros,
+            gte: payableMicros,
           },
         },
         data: {
           balanceMicros: {
-            decrement: product.priceMicros,
+            decrement: payableMicros,
           },
           version: {
             increment: 1,
@@ -727,7 +639,11 @@ export async function placeOrderAction(formData: FormData) {
           userId: session.userId,
           productId: product.id,
           productSnapshotName: product.name,
-          productSnapshotPriceMicros: product.priceMicros,
+          productSnapshotPriceMicros: payableMicros,
+          originalAmountMicros: product.priceMicros,
+          discountMicros,
+          couponId: coupon?.id ?? null,
+          couponCode: coupon?.code ?? null,
           userNote: orderRequest.userNote,
           deliveryType: orderRequest.deliveryType,
           targetLink: orderRequest.targetLink,
@@ -761,12 +677,50 @@ export async function placeOrderAction(formData: FormData) {
           orderId: order.id,
           type: LedgerType.ORDER_PAYMENT,
           direction: LedgerDirection.DEBIT,
-          amountMicros: product.priceMicros,
+          amountMicros: payableMicros,
           balanceBeforeMicros: wallet.balanceMicros,
-          balanceAfterMicros: wallet.balanceMicros - product.priceMicros,
-          note: `Order payment: ${product.name}`,
+          balanceAfterMicros: wallet.balanceMicros - payableMicros,
+          note: coupon ? `Order payment: ${product.name} (${coupon.code})` : `Order payment: ${product.name}`,
         },
       });
+
+      if (product.autoDeliverStock) {
+        const credential = await tx.productCredential.findFirst({
+          where: {
+            productId: product.id,
+            status: ProductCredentialStatus.AVAILABLE,
+          },
+          orderBy: {
+            createdAt: "asc",
+          },
+        });
+
+        if (!credential) {
+          throw new Error("该商品库存不足，请联系管理员补货。");
+        }
+
+        await tx.productCredential.update({
+          where: {
+            id: credential.id,
+          },
+          data: {
+            status: ProductCredentialStatus.DELIVERED,
+            orderId: order.id,
+            deliveredAt: new Date(),
+          },
+        });
+
+        await tx.order.update({
+          where: {
+            id: order.id,
+          },
+          data: {
+            status: OrderStatus.FULFILLED,
+            handledAt: new Date(),
+            fulfillmentNote: credential.secret,
+          },
+        });
+      }
 
       return order;
     });
@@ -956,4 +910,43 @@ export async function syncOrderUpstreamAction(formData: FormData) {
   revalidatePath("/dashboard");
   revalidatePath("/admin/orders");
   redirect(withQueryMessage(returnTo, "success", fulfillmentCopy.messages.upstreamStatusSynced));
+}
+
+const orderMessageSchema = z.object({
+  orderId: z.string().trim().min(1),
+  body: z.string().trim().min(1).max(1000),
+});
+
+export async function addUserOrderMessageAction(formData: FormData) {
+  const session = await requireSession();
+  const parsed = orderMessageSchema.safeParse({
+    orderId: formData.get("orderId"),
+    body: formData.get("body"),
+  });
+
+  if (!parsed.success) {
+    redirect(withQueryMessage("/orders", "error", "留言内容不能为空。"));
+  }
+
+  const order = await prisma.order.findFirst({
+    where: { id: parsed.data.orderId, userId: session.userId },
+    select: { id: true },
+  });
+
+  if (!order) {
+    redirect(withQueryMessage("/orders", "error", "订单不存在。"));
+  }
+
+  await prisma.orderMessage.create({
+    data: {
+      orderId: parsed.data.orderId,
+      authorId: session.userId,
+      authorRole: "USER",
+      body: parsed.data.body,
+    },
+  });
+
+  revalidatePath("/orders");
+  revalidatePath("/admin/orders");
+  redirect(withQueryMessage("/orders", "success", "留言已发送。"));
 }

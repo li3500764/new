@@ -5,7 +5,6 @@ import { getMarketingCopy } from "@/lib/i18n";
 import { getCurrentLocale } from "@/lib/i18n-server";
 import { formatUsdt } from "@/lib/money";
 import { firstValue, formatDate, getFlashMessage } from "@/lib/utils";
-import { getWithdrawalCopy } from "@/lib/withdrawal-copy";
 
 type AdminUsersPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -30,7 +29,6 @@ export default async function AdminUsersPage({
   const flash = getFlashMessage(resolvedSearchParams);
   const locale = await getCurrentLocale();
   const copy = getMarketingCopy(locale);
-  const withdrawalCopy = getWithdrawalCopy(locale);
   const requestedPage = getPageFromQuery(firstValue(resolvedSearchParams.page));
   const { totalCount, currentPage, pageCount, items: users } = await getAdminUsersPage(
     requestedPage,
@@ -88,9 +86,6 @@ export default async function AdminUsersPage({
                 </div>
                 <div className="mt-1 text-sm text-slate-700">
                   {copy.admin.users.recharges} {user._count.rechargeOrders}
-                </div>
-                <div className="mt-1 text-sm text-slate-700">
-                  {withdrawalCopy.admin.navLabel} {user._count.withdrawalRequests}
                 </div>
                 <div className="mt-1 text-sm text-slate-700">
                   {copy.admin.users.referrals} {user._count.referrals}

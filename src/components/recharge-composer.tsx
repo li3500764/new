@@ -1,13 +1,10 @@
 "use client";
 
-import Image from "next/image";
-import { useEffect, useState } from "react";
-import QRCode from "qrcode";
+import { useState } from "react";
 
 import { createRechargeOrderAction } from "@/lib/actions/shop";
 import { cn } from "@/lib/utils";
 
-import { CopyButton } from "./copy-button";
 import { SubmitButton } from "./submit-button";
 
 type RechargeChannel = "AUTO" | "MANUAL";
@@ -67,6 +64,13 @@ const text = {
   ],
   autoFallback:
     "\u5982\u679c\u81ea\u52a8\u901a\u9053\u4e34\u65f6\u4e0d\u53ef\u7528\uff0c\u518d\u5207\u6362\u5230\u4eba\u5de5\u5145\u503c\u6e20\u9053\u63d0\u4ea4\u54c8\u5e0c\u5ba1\u6838\u3002",
+  manualTitle: "\u4eba\u5de5\u5145\u503c",
+  manualBonus: "\u4eba\u5de5\u5145\u503c\u8d60\u9001 1% \u4f59\u989d",
+  manualContact: "\u8054\u7cfb\u65b9\u5f0f",
+  manualTelegram: "Telegram: @vc5444",
+  manualEmail: "Email: zszy982@gmail.com",
+  manualNote:
+    "\u8bf7\u5148\u8054\u7cfb\u5ba2\u670d\u786e\u8ba4\u91d1\u989d\u548c\u7f51\u7edc\uff0c\u5ba2\u670d\u786e\u8ba4\u5230\u8d26\u540e\u4f1a\u4eba\u5de5\u4e3a\u4f60\u52a0\u4f59\u989d\u3002",
 };
 
 const channelOptions: Array<{
@@ -86,8 +90,7 @@ const channelOptions: Array<{
     value: "MANUAL",
     title: "\u4eba\u5de5\u5145\u503c\u6e20\u9053",
     badge: "\u5907\u7528",
-    description:
-      "\u663e\u793a\u6536\u6b3e\u5730\u5740\u548c\u4e8c\u7ef4\u7801\uff0c\u8f6c\u8d26\u540e\u63d0\u4ea4\u4ea4\u6613\u54c8\u5e0c\u7b49\u5f85\u5ba1\u6838\u3002",
+    description: "\u4ec5\u63d0\u4f9b\u4eba\u5de5\u8054\u7cfb\u65b9\u5f0f\uff0c\u4eba\u5de5\u5145\u503c\u8d60\u9001 1% \u4f59\u989d\u3002",
   },
 ];
 
@@ -99,41 +102,10 @@ export function RechargeComposer({
   const [amount, setAmount] = useState("50");
   const [channel, setChannel] = useState<RechargeChannel>("AUTO");
   const [selectedNetwork, setSelectedNetwork] = useState(networks[0]?.value ?? "");
-  const [qrCode, setQrCode] = useState("");
 
   const currentNetwork =
     networks.find((network) => network.value === selectedNetwork) ?? networks[0];
   const isManualChannel = channel === "MANUAL";
-
-  useEffect(() => {
-    let active = true;
-
-    async function generate() {
-      if (!isManualChannel || !currentNetwork?.address) {
-        setQrCode("");
-        return;
-      }
-
-      const dataUrl = await QRCode.toDataURL(currentNetwork.address, {
-        margin: 1,
-        width: 220,
-        color: {
-          dark: "#0f172a",
-          light: "#ffffff",
-        },
-      });
-
-      if (active) {
-        setQrCode(dataUrl);
-      }
-    }
-
-    generate();
-
-    return () => {
-      active = false;
-    };
-  }, [currentNetwork?.address, isManualChannel]);
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
@@ -191,6 +163,30 @@ export function RechargeComposer({
             </div>
           </div>
 
+          {isManualChannel ? (
+            <div className="rounded-[28px] border border-emerald-100 bg-emerald-50/70 p-5">
+              <div className="text-sm font-semibold text-emerald-700">{text.manualBonus}</div>
+              <h3 className="mt-3 text-2xl font-black text-slate-950">{text.manualContact}</h3>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <a
+                  href="https://t.me/vc5444"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-emerald-300"
+                >
+                  {text.manualTelegram}
+                </a>
+                <a
+                  href="mailto:zszy982@gmail.com"
+                  className="rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-emerald-300"
+                >
+                  {text.manualEmail}
+                </a>
+              </div>
+              <p className="mt-4 text-sm leading-6 text-emerald-800">{text.manualNote}</p>
+            </div>
+          ) : (
+            <>
           <div>
             <label className="mb-3 block text-sm font-semibold text-slate-700">
               {copy.amountLabel}
@@ -274,81 +270,40 @@ export function RechargeComposer({
             </div>
           </div>
 
-          {isManualChannel ? (
-            <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-slate-500">{copy.currentAddress}</div>
-                  <div className="mt-2 break-all text-base font-black text-slate-950">
-                    {currentNetwork.address}
-                  </div>
-                </div>
-                <CopyButton
-                  text={currentNetwork.address}
-                  idleLabel={copy.copyAddress}
-                  copiedLabel={copy.copied}
-                />
-              </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
-                <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600">
-                  {copy.addressTips[0]}
-                </div>
-                <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600">
-                  {copy.addressTips[1].replace("{count}", String(currentNetwork.minConfirmations))}
-                </div>
-                <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600">
-                  {currentNetwork.autoVerifyReady ? copy.addressTips[2] : copy.addressTips[3]}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
           <SubmitButton pendingText={copy.processing} className="w-full justify-center py-3 text-base">
-            {isManualChannel ? copy.createOrder : text.autoButton}
+            {text.autoButton}
           </SubmitButton>
+            </>
+          )}
         </form>
       </section>
 
       <section className="panel p-6">
         {isManualChannel ? (
-          <div>
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm uppercase tracking-[0.2em] text-slate-400">
-                  {copy.depositQr}
-                </div>
-                <div className="mt-2 text-2xl font-black text-slate-950">{currentNetwork.label}</div>
-              </div>
-              <div className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
-                USDT
-              </div>
+          <div className="flex h-full min-h-[360px] flex-col justify-center rounded-[30px] border border-slate-200 bg-white p-6 text-slate-950">
+            <div className="text-sm uppercase tracking-[0.22em] text-slate-400">
+              Manual Recharge
             </div>
-
-            <div className="mt-6 flex flex-col items-center rounded-[28px] border border-slate-200 bg-slate-50 p-5 text-slate-950">
-              {qrCode ? (
-                <Image
-                  src={qrCode}
-                  alt={`${currentNetwork.label} ${copy.qrAltSuffix}`}
-                  className="h-[220px] w-[220px] rounded-2xl"
-                  width={220}
-                  height={220}
-                  unoptimized
-                />
-              ) : (
-                <div className="flex h-[220px] w-[220px] items-center justify-center rounded-2xl bg-slate-100 text-sm text-slate-400">
-                  {copy.generatingQr}
-                </div>
-              )}
-              <div className="mt-4 text-xs text-slate-500">{copy.scanHint}</div>
+            <h2 className="mt-3 text-3xl font-black">{text.manualTitle}</h2>
+            <p className="mt-4 text-sm leading-7 text-slate-600">{text.manualNote}</p>
+            <div className="mt-8 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-4 text-sm font-semibold text-emerald-700">
+              {text.manualBonus}
             </div>
-
-            <div className="mt-6 rounded-[28px] border border-slate-200 bg-slate-50 p-5">
-              <div className="text-sm font-semibold text-slate-700">{copy.paymentNotice}</div>
-              <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
-                {copy.paymentTips.map((tip) => (
-                  <li key={tip}>{tip}</li>
-                ))}
-              </ul>
+            <div className="mt-4 grid gap-3">
+              <a
+                href="https://t.me/vc5444"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-semibold text-slate-900 transition hover:border-sky-300"
+              >
+                {text.manualTelegram}
+              </a>
+              <a
+                href="mailto:zszy982@gmail.com"
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-semibold text-slate-900 transition hover:border-sky-300"
+              >
+                {text.manualEmail}
+              </a>
             </div>
           </div>
         ) : (

@@ -46,11 +46,10 @@ enum RechargeProvider {
 
 enum LedgerType {
   RECHARGE
+  RECHARGE_BONUS
   COMMISSION
   ORDER_PAYMENT
   ORDER_REFUND
-  WITHDRAWAL_REQUEST
-  WITHDRAWAL_REJECT
   ADMIN_ADJUSTMENT
 }
 
@@ -65,6 +64,7 @@ enum OrderStatus {
   FULFILLED
   REFUNDED
   CANCELLED
+  REJECTED
 }
 
 enum OrderDeliveryType {
@@ -75,6 +75,17 @@ enum OrderDeliveryType {
 enum ProductFulfillmentMode {
   MANUAL
   CRAZYSMM
+}
+
+enum CouponDiscountType {
+  PERCENT
+  FIXED
+}
+
+enum ProductCredentialStatus {
+  AVAILABLE
+  DELIVERED
+  DISABLED
 }
 
 enum UpstreamProvider {
@@ -100,10 +111,9 @@ enum CommissionStatus {
   VOID
 }
 
-enum WithdrawalStatus {
-  PENDING
-  APPROVED
-  REJECTED
+enum OrderMessageAuthor {
+  USER
+  ADMIN
 }
 
 model User {
@@ -121,12 +131,11 @@ model User {
   orders             Order[]            @relation("UserOrders")
   rechargeOrders     RechargeOrder[]    @relation("RechargeOwner")
   reviewedRecharges  RechargeOrder[]    @relation("RechargeReviewer")
-  withdrawalRequests WithdrawalRequest[] @relation("WithdrawalOwner")
-  reviewedWithdrawals WithdrawalRequest[] @relation("WithdrawalReviewer")
   handledOrders      Order[]            @relation("OrderHandler")
   walletEntries      WalletLedger[]
   commissionSources  CommissionRecord[] @relation("CommissionFrom")
   commissionReceipts CommissionRecord[] @relation("CommissionTo")
+  orderMessages      OrderMessage[]
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
@@ -135,42 +144,45 @@ model User {
 }
 
 model Wallet {
-  id           String         @id @default(cuid())
-  userId       String         @unique
-  balanceMicros BigInt        @default(0)
-  version      Int            @default(0)
-  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String         @id @default(cuid())
+  userId        String         @unique
+  balanceMicros BigInt         @default(0)
+  version       Int            @default(0)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   ledgerEntries WalletLedger[]
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 }
 
 model Product {
-  id                    String                 @id @default(cuid())
-  slug                  String                 @unique
-  name                  String
-  subtitle              String
-  category              String
-  cover                 String
-  summary               String
-  description           String
-  tags                  String
-  deliveryNote          String
-  priceMicros           BigInt
-  fulfillmentMode       ProductFulfillmentMode @default(MANUAL)
-  listingMin            Int?
-  listingMax            Int?
-  listingAverageTime    String?
-  upstreamProvider      UpstreamProvider?
-  upstreamServiceId     String?
-  upstreamServiceType   UpstreamServiceType?
-  upstreamSupportsRefill Boolean               @default(false)
-  upstreamSupportsCancel Boolean               @default(false)
-  sortOrder             Int                    @default(0)
-  status                ProductStatus          @default(ACTIVE)
-  orders                Order[]
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
+  id                     String                 @id @default(cuid())
+  slug                   String                 @unique
+  name                   String
+  subtitle               String
+  category               String
+  cover                  String
+  summary                String
+  description            String
+  tags                   String
+  deliveryNote           String
+  priceMicros            BigInt
+  fulfillmentMode        ProductFulfillmentMode @default(MANUAL)
+  listingMin             Int?
+  listingMax             Int?
+  listingAverageTime     String?
+  upstreamProvider       UpstreamProvider?
+  upstreamServiceId      String?
+  upstreamServiceType    UpstreamServiceType?
+  upstreamSupportsRefill Boolean                @default(false)
+  upstreamSupportsCancel Boolean                @default(false)
+  autoDeliverStock       Boolean                @default(false)
+  sortOrder              Int                    @default(0)
+  status                 ProductStatus          @default(ACTIVE)
+  orders                 Order[]
+  coupons                Coupon[]
+  credentials            ProductCredential[]
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
 
   @@index([status, sortOrder])
   @@index([category])
@@ -178,39 +190,40 @@ model Product {
 }
 
 model RechargeOrder {
-  id                           String                     @id @default(cuid())
-  serialNo                     String                     @unique
-  userId                       String
-  reviewerId                   String?
-  network                      RechargeNetwork
-  walletAddress                String
-  amountMicros                 BigInt
-  creditedMicros               BigInt                     @default(0)
-  txHash                       String?                    @unique
-  proofNote                    String?
-  status                       RechargeStatus             @default(AWAITING_PAYMENT)
-  verificationStatus           RechargeVerificationStatus @default(PENDING)
-  verificationMessage          String?
-  verificationCheckedAt        DateTime?
-  verificationConfirmations    Int?
-  verificationBlockNumber      Int?
+  id                               String                     @id @default(cuid())
+  serialNo                         String                     @unique
+  userId                           String
+  reviewerId                       String?
+  network                          RechargeNetwork
+  walletAddress                    String
+  amountMicros                     BigInt
+  creditedMicros                   BigInt                     @default(0)
+  bonusMicros                      BigInt                     @default(0)
+  txHash                           String?                    @unique
+  proofNote                        String?
+  status                           RechargeStatus             @default(AWAITING_PAYMENT)
+  verificationStatus               RechargeVerificationStatus @default(PENDING)
+  verificationMessage              String?
+  verificationCheckedAt            DateTime?
+  verificationConfirmations        Int?
+  verificationBlockNumber          Int?
   verificationDetectedAmountMicros BigInt?
-  verificationDetectedToAddress String?
-  provider                     RechargeProvider          @default(MANUAL)
-  providerPaymentUuid          String?                    @unique
-  providerPaymentUrl           String?                    @db.VarChar(500)
-  providerStatus               String?                    @db.VarChar(64)
-  providerPayload              String?                    @db.Text
-  adminNote                    String?
-  submittedAt                  DateTime?
-  reviewedAt                   DateTime?
-  expiresAt                    DateTime?
-  user                         User                       @relation("RechargeOwner", fields: [userId], references: [id], onDelete: Cascade)
-  reviewer                     User?                      @relation("RechargeReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
-  walletEntries                WalletLedger[]
-  commissionRecords           CommissionRecord[]
-  createdAt                    DateTime                   @default(now())
-  updatedAt                    DateTime                   @updatedAt
+  verificationDetectedToAddress    String?
+  provider                         RechargeProvider           @default(MANUAL)
+  providerPaymentUuid              String?                    @unique
+  providerPaymentUrl               String?                    @db.VarChar(500)
+  providerStatus                   String?                    @db.VarChar(64)
+  providerPayload                  String?                    @db.Text
+  adminNote                        String?
+  submittedAt                      DateTime?
+  reviewedAt                       DateTime?
+  expiresAt                        DateTime?
+  user                             User                       @relation("RechargeOwner", fields: [userId], references: [id], onDelete: Cascade)
+  reviewer                         User?                      @relation("RechargeReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  walletEntries                    WalletLedger[]
+  commissionRecords                CommissionRecord[]
+  createdAt                        DateTime                   @default(now())
+  updatedAt                        DateTime                   @updatedAt
 
   @@index([userId, status])
   @@index([status, createdAt])
@@ -218,124 +231,161 @@ model RechargeOrder {
   @@index([provider, providerStatus])
 }
 
-model WithdrawalRequest {
-  id            String           @id @default(cuid())
-  serialNo      String           @unique
-  userId        String
-  reviewerId    String?
-  network       RechargeNetwork
-  walletAddress String
-  amountMicros  BigInt
-  txHash        String?          @unique
-  userNote      String?
-  reviewNote    String?
-  status        WithdrawalStatus @default(PENDING)
-  reviewedAt    DateTime?
-  user          User             @relation("WithdrawalOwner", fields: [userId], references: [id], onDelete: Cascade)
-  reviewer      User?            @relation("WithdrawalReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
-  walletEntries WalletLedger[]
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-
-  @@index([userId, status])
-  @@index([status, createdAt])
-}
-
 model Order {
-  id                       String                   @id @default(cuid())
-  serialNo                 String                   @unique
-  userId                   String
-  handlerId                String?
-  productId                String
-  productSnapshotName      String
+  id                         String                   @id @default(cuid())
+  serialNo                   String                   @unique
+  userId                     String
+  handlerId                  String?
+  productId                  String
+  productSnapshotName        String
   productSnapshotPriceMicros BigInt
-  userNote                 String?
-  targetLink               String?
-  quantity                 Int?
-  runs                     Int?
-  intervalMinutes          Int?
-  commentsText             String?
-  subscriptionUsername     String?
-  subscriptionMin          Int?
-  subscriptionMax          Int?
-  subscriptionPosts        Int?
-  subscriptionOldPosts     Int?
-  subscriptionDelayMinutes Int?
-  subscriptionExpiry       DateTime?
-  upstreamProvider         UpstreamProvider?
-  upstreamServiceId        String?
-  upstreamServiceType      UpstreamServiceType?
-  upstreamOrderId          String?
-  upstreamStatus           String?
-  upstreamCharge           String?
-  upstreamStartCount       String?
-  upstreamRemains          String?
-  upstreamCurrency         String?
-  upstreamSyncMessage      String?
-  upstreamRequestPayload   String?
-  upstreamResponsePayload  String?
-  upstreamSubmissionStatus UpstreamSubmissionStatus @default(NOT_REQUIRED)
-  upstreamSubmittedAt      DateTime?
-  upstreamLastSyncAt       DateTime?
-  fulfillmentNote          String?
-  status                   OrderStatus              @default(PENDING)
-  deliveryType             OrderDeliveryType        @default(MANUAL)
-  handledAt                DateTime?
-  user                     User                     @relation("UserOrders", fields: [userId], references: [id], onDelete: Cascade)
-  handler                  User?                    @relation("OrderHandler", fields: [handlerId], references: [id], onDelete: SetNull)
-  product                  Product                  @relation(fields: [productId], references: [id], onDelete: Restrict)
-  walletEntries            WalletLedger[]
-  createdAt                DateTime                 @default(now())
-  updatedAt                DateTime                 @updatedAt
+  originalAmountMicros       BigInt?
+  discountMicros             BigInt                   @default(0)
+  couponId                   String?
+  couponCode                 String?
+  userNote                   String?
+  targetLink                 String?
+  quantity                   Int?
+  runs                       Int?
+  intervalMinutes            Int?
+  commentsText               String?
+  subscriptionUsername       String?
+  subscriptionMin            Int?
+  subscriptionMax            Int?
+  subscriptionPosts          Int?
+  subscriptionOldPosts       Int?
+  subscriptionDelayMinutes   Int?
+  subscriptionExpiry         DateTime?
+  upstreamProvider           UpstreamProvider?
+  upstreamServiceId          String?
+  upstreamServiceType        UpstreamServiceType?
+  upstreamOrderId            String?
+  upstreamStatus             String?
+  upstreamCharge             String?
+  upstreamStartCount         String?
+  upstreamRemains            String?
+  upstreamCurrency           String?
+  upstreamSyncMessage        String?
+  upstreamRequestPayload     String?
+  upstreamResponsePayload    String?
+  upstreamSubmissionStatus   UpstreamSubmissionStatus @default(NOT_REQUIRED)
+  upstreamSubmittedAt        DateTime?
+  upstreamLastSyncAt         DateTime?
+  fulfillmentNote            String?
+  status                     OrderStatus              @default(PENDING)
+  deliveryType               OrderDeliveryType        @default(MANUAL)
+  handledAt                  DateTime?
+  user                       User                     @relation("UserOrders", fields: [userId], references: [id], onDelete: Cascade)
+  handler                    User?                    @relation("OrderHandler", fields: [handlerId], references: [id], onDelete: SetNull)
+  product                    Product                  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  coupon                     Coupon?                  @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  deliveredCredential        ProductCredential?
+  walletEntries              WalletLedger[]
+  messages                   OrderMessage[]
+  createdAt                  DateTime                 @default(now())
+  updatedAt                  DateTime                 @updatedAt
 
   @@index([userId, status])
   @@index([status, createdAt])
+  @@index([couponId])
   @@index([deliveryType, upstreamSubmissionStatus, createdAt])
   @@index([upstreamOrderId])
 }
 
+model OrderMessage {
+  id        String             @id @default(cuid())
+  orderId   String
+  authorId  String?
+  author    User?              @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorRole OrderMessageAuthor
+  body      String             @db.Text
+  order     Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdAt DateTime           @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+model Coupon {
+  id                String             @id @default(cuid())
+  code              String             @unique
+  title             String?
+  discountType      CouponDiscountType @default(PERCENT)
+  discountValue     Int
+  minOrderMicros    BigInt             @default(0)
+  maxDiscountMicros BigInt?
+  usageLimit        Int?
+  usedCount         Int                @default(0)
+  startsAt          DateTime?
+  expiresAt         DateTime?
+  isActive          Boolean            @default(true)
+  productId         String?
+  categoryName      String?
+  product           Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  orders            Order[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([isActive, expiresAt])
+  @@index([productId])
+  @@index([categoryName])
+}
+
+model ProductCredential {
+  id          String                  @id @default(cuid())
+  productId   String
+  orderId     String?                 @unique
+  label       String?
+  secret      String                  @db.Text
+  status      ProductCredentialStatus @default(AVAILABLE)
+  deliveredAt DateTime?
+  product     Product                 @relation(fields: [productId], references: [id], onDelete: Cascade)
+  order       Order?                  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  @@index([productId, status, createdAt])
+}
+
 model WalletLedger {
-  id                String           @id @default(cuid())
-  entryKey          String           @unique
-  walletId          String
-  userId            String
-  rechargeOrderId   String?
-  withdrawalRequestId String?
-  orderId           String?
-  commissionRecordId String?
-  createdById       String?
-  type              LedgerType
-  direction         LedgerDirection
-  amountMicros      BigInt
+  id                  String             @id @default(cuid())
+  entryKey            String             @unique
+  walletId            String
+  userId              String
+  rechargeOrderId     String?
+  orderId             String?
+  commissionRecordId  String?
+  createdById         String?
+  type                LedgerType
+  direction           LedgerDirection
+  amountMicros        BigInt
   balanceBeforeMicros BigInt
-  balanceAfterMicros BigInt
-  note              String
-  wallet            Wallet           @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rechargeOrder     RechargeOrder?   @relation(fields: [rechargeOrderId], references: [id], onDelete: SetNull)
-  withdrawalRequest WithdrawalRequest? @relation(fields: [withdrawalRequestId], references: [id], onDelete: SetNull)
-  order             Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  commissionRecord  CommissionRecord? @relation(fields: [commissionRecordId], references: [id], onDelete: SetNull)
-  createdAt         DateTime         @default(now())
+  balanceAfterMicros  BigInt
+  note                String
+  wallet              Wallet             @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rechargeOrder       RechargeOrder?     @relation(fields: [rechargeOrderId], references: [id], onDelete: SetNull)
+  order               Order?             @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  commissionRecord    CommissionRecord?  @relation(fields: [commissionRecordId], references: [id], onDelete: SetNull)
+  createdAt           DateTime           @default(now())
 
   @@index([walletId, createdAt])
   @@index([userId, createdAt])
 }
 
 model CommissionRecord {
-  id             String           @id @default(cuid())
+  id              String           @id @default(cuid())
   rechargeOrderId String
-  fromUserId     String
-  toUserId       String
+  fromUserId      String
+  toUserId        String
   rateBasisPoints Int
-  amountMicros   BigInt
-  status         CommissionStatus @default(SETTLED)
-  note           String?
-  rechargeOrder  RechargeOrder    @relation(fields: [rechargeOrderId], references: [id], onDelete: Cascade)
-  fromUser       User             @relation("CommissionFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
-  toUser         User             @relation("CommissionTo", fields: [toUserId], references: [id], onDelete: Cascade)
-  walletEntries  WalletLedger[]
-  createdAt      DateTime         @default(now())
+  amountMicros    BigInt
+  status          CommissionStatus @default(SETTLED)
+  note            String?
+  rechargeOrder   RechargeOrder    @relation(fields: [rechargeOrderId], references: [id], onDelete: Cascade)
+  fromUser        User             @relation("CommissionFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser          User             @relation("CommissionTo", fields: [toUserId], references: [id], onDelete: Cascade)
+  walletEntries   WalletLedger[]
+  createdAt       DateTime         @default(now())
 
   @@unique([rechargeOrderId, toUserId])
   @@index([toUserId, createdAt])
@@ -352,6 +402,18 @@ model ProductCategory {
   @@index([sortOrder, name])
 }
 
+model SiteText {
+  id        String   @id @default(cuid())
+  textKey   String
+  locale    String
+  value     String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([textKey, locale])
+  @@index([locale])
+}
+
 model SecurityThrottle {
   id              String    @id @default(cuid())
   scope           String
@@ -366,4 +428,12 @@ model SecurityThrottle {
 
   @@unique([scope, subjectHash])
   @@index([scope, blockedUntil])
+}
+
+model SiteConfig {
+  id        String   @id @default(cuid())
+  configKey String   @unique
+  value     String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

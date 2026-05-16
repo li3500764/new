@@ -10,6 +10,7 @@
     "test": "tsx --test tests/**/*.test.ts",
     "db:push": "tsx prisma/push.ts",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed-smm": "tsx prisma/seed-smm.ts",
     "hostinger:init": "npm run db:push && npm run db:seed"
   },
   "dependencies": {

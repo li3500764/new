@@ -9,8 +9,6 @@ import { getCurrentLocale } from "@/lib/i18n-server";
 import { formatUsdt } from "@/lib/money";
 import { getRechargeStatusMeta } from "@/lib/site";
 import { formatDate, getFlashMessage } from "@/lib/utils";
-import { getWithdrawalStatusMeta } from "@/lib/withdrawal";
-import { getWithdrawalCopy } from "@/lib/withdrawal-copy";
 
 type AdminHomePageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -22,7 +20,6 @@ export default async function AdminHomePage({
   const flash = getFlashMessage(await searchParams);
   const locale = await getCurrentLocale();
   const copy = getMarketingCopy(locale);
-  const withdrawalCopy = getWithdrawalCopy(locale);
   const data = await getAdminDashboardData();
 
   const orderStatusLabel: Record<OrderStatus, string> = {
@@ -31,6 +28,7 @@ export default async function AdminHomePage({
     FULFILLED: copy.admin.overview.orderStatuses.fulfilled,
     REFUNDED: copy.admin.overview.orderStatuses.refunded,
     CANCELLED: copy.admin.overview.orderStatuses.cancelled,
+    REJECTED: locale === "zh" ? "已驳回" : locale === "ko" ? "반려됨" : "Rejected",
   };
 
   return (
@@ -41,7 +39,7 @@ export default async function AdminHomePage({
         <h1 className="text-3xl font-black text-slate-950">
           {copy.admin.overview.title}
         </h1>
-        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-3xl bg-slate-50 p-5">
             <div className="text-sm text-slate-500">
               {copy.admin.overview.metrics.users}
@@ -74,18 +72,10 @@ export default async function AdminHomePage({
               {data.pendingOrders}
             </div>
           </div>
-          <div className="rounded-3xl bg-amber-50 p-5">
-            <div className="text-sm text-amber-700">
-              {withdrawalCopy.admin.statsPending}
-            </div>
-            <div className="mt-2 text-3xl font-black text-amber-700">
-              {data.pendingWithdrawals}
-            </div>
-          </div>
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-3">
+      <section className="grid gap-6 xl:grid-cols-2">
         <div className="panel p-6">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-black text-slate-950">
@@ -153,59 +143,6 @@ export default async function AdminHomePage({
           </div>
         </div>
 
-        <div className="panel p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-black text-slate-950">
-              {withdrawalCopy.admin.title}
-            </h2>
-            <Link
-              href="/admin/withdrawals"
-              className="text-sm font-semibold text-slate-500"
-            >
-              {copy.admin.overview.reviewLink}
-            </Link>
-          </div>
-          <div className="mt-6 space-y-4">
-            {data.latestWithdrawals.length === 0 ? (
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4 text-sm text-slate-500">
-                {withdrawalCopy.admin.noRequests}
-              </div>
-            ) : (
-              data.latestWithdrawals.map((withdrawal) => {
-                const statusMeta = getWithdrawalStatusMeta(
-                  withdrawal.status,
-                  locale,
-                );
-
-                return (
-                  <div
-                    key={withdrawal.id}
-                    className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4"
-                  >
-                    <div className="font-semibold text-slate-950">
-                      {withdrawal.serialNo}
-                    </div>
-                    <div className="mt-1 text-sm text-slate-500">
-                      {withdrawal.user.displayName} /{" "}
-                      {formatDate(withdrawal.createdAt, locale)}
-                    </div>
-                    <div className="mt-2 text-sm font-semibold text-slate-700">
-                      {formatUsdt(withdrawal.amountMicros)} USDT /{" "}
-                      {withdrawal.network}
-                    </div>
-                    <div className="mt-2">
-                      <span
-                        className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusMeta.className}`}
-                      >
-                        {statusMeta.label}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
       </section>
     </>
   );

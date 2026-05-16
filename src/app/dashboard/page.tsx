@@ -2,17 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AlertBanner } from "@/components/alert-banner";
-import { SubmitButton } from "@/components/submit-button";
-import { createWithdrawalRequestAction } from "@/lib/actions/shop";
 import { requireSession } from "@/lib/auth";
 import { getDashboardData } from "@/lib/data";
 import { getMarketingCopy } from "@/lib/i18n";
 import { getCurrentLocale } from "@/lib/i18n-server";
 import { formatUsdt } from "@/lib/money";
-import { getLocalizedRechargeNetworks } from "@/lib/site";
 import { formatDate, getFlashMessage } from "@/lib/utils";
-import { getWithdrawalStatusMeta } from "@/lib/withdrawal";
-import { getWithdrawalCopy } from "@/lib/withdrawal-copy";
 
 type DashboardPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -28,7 +23,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const flash = getFlashMessage(await searchParams);
   const locale = await getCurrentLocale();
   const copy = getMarketingCopy(locale);
-  const withdrawalCopy = getWithdrawalCopy(locale);
   const data = await getDashboardData(session.userId);
 
   if (!data) {
@@ -79,137 +73,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </div>
           <div className="mt-3 text-sm leading-6 text-slate-500">
             {copy.dashboard.commissionHint}
-          </div>
-        </section>
-      </div>
-
-      <div className="mt-6 grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
-        <section className="panel p-5">
-          <h2 className="text-xl font-black text-slate-950">{withdrawalCopy.user.sectionTitle}</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-500">
-            {withdrawalCopy.user.sectionDescription}
-          </p>
-          <div className="mt-3 rounded-2xl bg-amber-50 px-4 py-2.5 text-[13px] leading-6 text-amber-700">
-            {withdrawalCopy.user.reservedHint}
-          </div>
-
-          <form action={createWithdrawalRequestAction} className="mt-4 grid gap-3">
-            <div className="grid gap-3 md:grid-cols-[0.9fr_0.7fr]">
-              <label className="grid gap-2 text-sm">
-                <span className="font-medium text-slate-700">{withdrawalCopy.user.amountLabel}</span>
-                <input
-                  type="text"
-                  name="amount"
-                  placeholder={withdrawalCopy.user.amountPlaceholder}
-                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm"
-                />
-              </label>
-              <label className="grid gap-2 text-sm">
-                <span className="font-medium text-slate-700">{withdrawalCopy.user.networkLabel}</span>
-                <select
-                  name="network"
-                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm"
-                  defaultValue="TRC20"
-                >
-                  {getLocalizedRechargeNetworks(locale).map((network) => (
-                    <option key={network.value} value={network.value}>
-                      {network.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium text-slate-700">{withdrawalCopy.user.addressLabel}</span>
-              <input
-                type="text"
-                name="walletAddress"
-                placeholder={withdrawalCopy.user.addressPlaceholder}
-                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm"
-              />
-            </label>
-
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium text-slate-700">{withdrawalCopy.user.noteLabel}</span>
-              <input
-                type="text"
-                name="userNote"
-                placeholder={withdrawalCopy.user.notePlaceholder}
-                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm"
-              />
-            </label>
-
-            <div className="flex justify-start">
-              <SubmitButton pendingText={withdrawalCopy.user.submitPending} className="px-4 py-2 text-sm">
-                {withdrawalCopy.user.submitAction}
-              </SubmitButton>
-            </div>
-          </form>
-        </section>
-
-        <section className="panel p-5">
-          <h2 className="text-xl font-black text-slate-950">{withdrawalCopy.user.historyTitle}</h2>
-          <div className="mt-4 space-y-3">
-            {data.withdrawalRequests.length === 0 ? (
-              <div className="rounded-2xl bg-slate-50 px-4 py-4 text-sm text-slate-500">
-                {withdrawalCopy.user.noRequests}
-              </div>
-            ) : (
-              data.withdrawalRequests.map((request) => {
-                const statusMeta = getWithdrawalStatusMeta(request.status, locale);
-
-                return (
-                  <div
-                    key={request.id}
-                    className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3.5"
-                  >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <div className="font-semibold text-slate-950">{request.serialNo}</div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {withdrawalCopy.user.requestedAtLabel} {formatDate(request.createdAt, locale)}
-                        </div>
-                      </div>
-                      <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusMeta.className}`}>
-                        {statusMeta.label}
-                      </span>
-                    </div>
-                    <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
-                      <div className="text-sm text-slate-600">
-                        {withdrawalCopy.user.networkValueLabel}: {request.network}
-                      </div>
-                      <div className="text-sm font-semibold text-slate-950">
-                        {formatUsdt(request.amountMicros)} USDT
-                      </div>
-                      <div className="break-all text-sm text-slate-600 sm:col-span-2">
-                        {withdrawalCopy.user.addressValueLabel}: {request.walletAddress}
-                      </div>
-                      {request.userNote ? (
-                        <div className="text-sm text-slate-600 sm:col-span-2">
-                          {withdrawalCopy.user.noteValueLabel}: {request.userNote}
-                        </div>
-                      ) : null}
-                      {request.reviewNote ? (
-                        <div className="text-sm text-slate-600 sm:col-span-2">
-                          {withdrawalCopy.user.reviewNoteValueLabel}: {request.reviewNote}
-                        </div>
-                      ) : null}
-                      {request.txHash ? (
-                        <div className="break-all text-sm text-slate-600 sm:col-span-2">
-                          {withdrawalCopy.user.txHashLabel}: {request.txHash}
-                        </div>
-                      ) : null}
-                      {request.reviewedAt ? (
-                        <div className="text-sm text-slate-500 sm:col-span-2">
-                          {withdrawalCopy.user.reviewedAtLabel} {formatDate(request.reviewedAt, locale)}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })
-            )}
           </div>
         </section>
       </div>
