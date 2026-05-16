@@ -176,6 +176,7 @@ model Product {
   upstreamSupportsRefill Boolean                @default(false)
   upstreamSupportsCancel Boolean                @default(false)
   autoDeliverStock       Boolean                @default(false)
+  commissionRateBps      Int?
   sortOrder              Int                    @default(0)
   status                 ProductStatus          @default(ACTIVE)
   orders                 Order[]
@@ -314,6 +315,7 @@ model Coupon {
   minOrderMicros    BigInt             @default(0)
   maxDiscountMicros BigInt?
   usageLimit        Int?
+  perUserLimit      Int?
   usedCount         Int                @default(0)
   startsAt          DateTime?
   expiresAt         DateTime?

@@ -1,5 +1,7 @@
 import { AlertBanner } from "@/components/alert-banner";
 import { PaginationNav } from "@/components/pagination-nav";
+import { SubmitButton } from "@/components/submit-button";
+import { adjustUserBalanceAction } from "@/lib/actions/admin";
 import { getAdminUsersPage } from "@/lib/data";
 import { getMarketingCopy } from "@/lib/i18n";
 import { getCurrentLocale } from "@/lib/i18n-server";
@@ -103,6 +105,28 @@ export default async function AdminUsersPage({
                 </div>
               </div>
             </div>
+
+            <form action={adjustUserBalanceAction} className="mt-4 flex flex-wrap items-end gap-3 border-t border-slate-200 pt-4">
+              <input type="hidden" name="userId" value={user.id} />
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">金额 (USDT)</label>
+                <input
+                  name="amount"
+                  required
+                  placeholder="正数加，负数扣"
+                  className="w-32 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">备注</label>
+                <input
+                  name="note"
+                  placeholder="调整原因"
+                  className="w-40 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]"
+                />
+              </div>
+              <SubmitButton pendingText="处理中..." className="text-[12px]">调整余额</SubmitButton>
+            </form>
           </div>
         ))}
       </section>

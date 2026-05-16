@@ -146,6 +146,7 @@ function createProductSchema(
     upstreamSupportsCancel: z.boolean().default(false),
     upstreamSupportsRefill: z.boolean().default(false),
     autoDeliverStock: z.boolean().default(false),
+    commissionRateBps: z.coerce.number().int().min(0).max(10000).optional(),
     sortOrder: z.coerce.number().int().min(0).max(9999),
     status: z.nativeEnum(ProductStatus),
   });
@@ -351,6 +352,7 @@ export async function upsertProductAction(formData: FormData) {
     upstreamSupportsCancel: formData.get("upstreamSupportsCancel") === "on",
     upstreamSupportsRefill: formData.get("upstreamSupportsRefill") === "on",
     autoDeliverStock: formData.get("autoDeliverStock") === "on",
+    commissionRateBps: formData.get("commissionRateBps") || undefined,
     sortOrder: formData.get("sortOrder"),
     status: formData.get("status"),
   });
@@ -495,6 +497,7 @@ export async function upsertProductAction(formData: FormData) {
       listingMax: parsed.data.listingMax ?? null,
       listingAverageTime: normalizedListingAverageTime,
       autoDeliverStock: parsed.data.autoDeliverStock,
+      commissionRateBps: parsed.data.commissionRateBps ?? null,
       ...upstreamData,
       sortOrder: parsed.data.sortOrder,
       status: parsed.data.status,
@@ -515,11 +518,45 @@ export async function upsertProductAction(formData: FormData) {
       listingMax: parsed.data.listingMax ?? null,
       listingAverageTime: normalizedListingAverageTime,
       autoDeliverStock: parsed.data.autoDeliverStock,
+      commissionRateBps: parsed.data.commissionRateBps ?? null,
       ...upstreamData,
       sortOrder: parsed.data.sortOrder,
       status: parsed.data.status,
     },
   });
+
+  // Handle inline translation fields (Task 6)
+  const translationFields = ["name", "subtitle", "description", "deliveryNote", "tags"] as const;
+  const hasTranslation = (["en", "ko"] as const).some((loc) =>
+    translationFields.some((field) => {
+      const val = String(formData.get(`${loc}_${field}`) ?? "").trim();
+      return val.length > 0;
+    }),
+  );
+
+  if (hasTranslation) {
+    for (const loc of ["en", "ko"] as const) {
+      for (const field of translationFields) {
+        const value = String(formData.get(`${loc}_${field}`) ?? "").trim();
+        const textKey = `product.${slug}.${field}`;
+
+        if (!value) {
+          await prisma.siteText.deleteMany({
+            where: { textKey, locale: loc },
+          });
+          continue;
+        }
+
+        await prisma.siteText.upsert({
+          where: {
+            textKey_locale: { textKey, locale: loc },
+          },
+          update: { value },
+          create: { textKey, locale: loc, value },
+        });
+      }
+    }
+  }
 
   revalidatePath("/");
   revalidatePath("/admin");
@@ -611,6 +648,7 @@ const couponSchema = z.object({
   minOrder: z.string().trim().optional(),
   maxDiscount: z.string().trim().optional(),
   usageLimit: z.coerce.number().int().min(1).max(1_000_000).optional(),
+  perUserLimit: z.coerce.number().int().min(1).max(1000).optional(),
   productId: z.string().trim().optional(),
   categoryName: z.string().trim().optional(),
   isActive: z.boolean().default(true),
@@ -626,6 +664,7 @@ export async function createCouponAction(formData: FormData) {
     minOrder: formData.get("minOrder") || undefined,
     maxDiscount: formData.get("maxDiscount") || undefined,
     usageLimit: formData.get("usageLimit") || undefined,
+    perUserLimit: formData.get("perUserLimit") || undefined,
     productId: formData.get("productId") || undefined,
     categoryName: formData.get("categoryName") || undefined,
     isActive: formData.get("isActive") === "on",
@@ -665,6 +704,7 @@ export async function createCouponAction(formData: FormData) {
       minOrderMicros,
       maxDiscountMicros,
       usageLimit: parsed.data.usageLimit ?? null,
+      perUserLimit: parsed.data.perUserLimit ?? null,
       productId: parsed.data.productId || null,
       categoryName: parsed.data.categoryName || null,
       isActive: parsed.data.isActive,
@@ -677,6 +717,7 @@ export async function createCouponAction(formData: FormData) {
       minOrderMicros,
       maxDiscountMicros,
       usageLimit: parsed.data.usageLimit ?? null,
+      perUserLimit: parsed.data.perUserLimit ?? null,
       productId: parsed.data.productId || null,
       categoryName: parsed.data.categoryName || null,
       isActive: parsed.data.isActive,
@@ -1441,4 +1482,100 @@ export async function upsertProductTranslationAction(formData: FormData) {
   revalidatePath("/");
   revalidatePath("/admin/settings");
   redirect(withQueryMessage("/admin/settings", "success", `商品「${product.slug}」翻译已保存。`));
+}
+
+export async function deleteProductCategoryAction(formData: FormData) {
+  await requireAdminSession();
+  const categoryId = String(formData.get("categoryId") ?? "").trim();
+
+  if (!categoryId) {
+    redirect(withQueryMessage("/admin/products", "error", "分类 ID 缺失。"));
+  }
+
+  const category = await prisma.productCategory.findUnique({
+    where: { id: categoryId },
+    select: { name: true },
+  });
+
+  if (!category) {
+    redirect(withQueryMessage("/admin/products", "error", "分类不存在。"));
+  }
+
+  const productCount = await prisma.product.count({
+    where: { category: category.name },
+  });
+
+  if (productCount > 0) {
+    redirect(
+      withQueryMessage("/admin/products", "error", "该分类下还有商品，不能删除"),
+    );
+  }
+
+  await prisma.productCategory.delete({ where: { id: categoryId } });
+
+  revalidatePath("/");
+  revalidatePath("/admin/products");
+  redirect(withQueryMessage("/admin/products", "success", "分类已删除。"));
+}
+
+export async function adjustUserBalanceAction(formData: FormData) {
+  const admin = await requireAdminSession();
+  const userId = String(formData.get("userId") ?? "").trim();
+  const amountStr = String(formData.get("amount") ?? "").trim();
+  const note = String(formData.get("note") ?? "").trim() || "管理员手动调整";
+
+  if (!userId || !amountStr) {
+    redirect(withQueryMessage("/admin/users", "error", "参数不完整。"));
+  }
+
+  const amountMicros = parseUsdt(amountStr);
+
+  if (amountMicros === 0n) {
+    redirect(withQueryMessage("/admin/users", "error", "金额不能为零。"));
+  }
+
+  const wallet = await prisma.wallet.findUnique({
+    where: { userId },
+  });
+
+  if (!wallet) {
+    redirect(withQueryMessage("/admin/users", "error", "用户钱包不存在。"));
+  }
+
+  const direction = amountMicros > 0n ? "CREDIT" : "DEBIT";
+  const absMicros = amountMicros > 0n ? amountMicros : -amountMicros;
+  const balanceBefore = wallet.balanceMicros;
+  const balanceAfter = balanceBefore + amountMicros;
+
+  if (balanceAfter < 0n) {
+    redirect(withQueryMessage("/admin/users", "error", "余额不足，无法扣减。"));
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.wallet.update({
+      where: { id: wallet.id },
+      data: {
+        balanceMicros: { increment: amountMicros },
+        version: { increment: 1 },
+      },
+    });
+
+    await tx.walletLedger.create({
+      data: {
+        entryKey: `admin-adjust:${wallet.id}:${Date.now()}`,
+        walletId: wallet.id,
+        userId,
+        createdById: admin.userId,
+        type: "ADMIN_ADJUSTMENT",
+        direction,
+        amountMicros: absMicros,
+        balanceBeforeMicros: balanceBefore,
+        balanceAfterMicros: balanceAfter,
+        note,
+      },
+    });
+  });
+
+  revalidatePath("/admin/users");
+  redirect(withQueryMessage("/admin/users", "success", "余额已调整。"));
 }

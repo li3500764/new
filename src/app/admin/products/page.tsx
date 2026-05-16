@@ -12,6 +12,7 @@ import { SubmitButton } from "@/components/submit-button";
 import {
   addProductCredentialsAction,
   createCouponAction,
+  deleteProductCategoryAction,
   upsertProductAction,
   upsertProductCategoryAction,
 } from "@/lib/actions/admin";
@@ -19,6 +20,7 @@ import {
   getAdminCouponsData,
   getAdminProductCategoriesData,
   getAdminProductsData,
+  getAdminSiteTextsData,
 } from "@/lib/data";
 import { getFulfillmentCopy } from "@/lib/fulfillment-copy";
 import { getMarketingCopy, type Locale } from "@/lib/i18n";
@@ -188,6 +190,7 @@ function ProductEditor({
   productStatusLabel,
   categories,
   defaults,
+  translations,
   submitLabel,
   submitPending,
 }: {
@@ -197,6 +200,7 @@ function ProductEditor({
   productStatusLabel: Record<ProductStatus, string>;
   categories: Awaited<ReturnType<typeof getAdminProductCategoriesData>>;
   defaults?: Awaited<ReturnType<typeof getAdminProductsData>>[number];
+  translations?: Record<string, Record<string, string>>;
   submitLabel: string;
   submitPending: string;
 }) {
@@ -488,7 +492,44 @@ function ProductEditor({
                 {fulfillmentCopy.admin.supportsRefillLabel}
               </label>
             </div>
+
+            <div className="mt-3">
+              <label className={labelClassName}>商品返佣比例 (‱)</label>
+              <input
+                name="commissionRateBps"
+                defaultValue={defaults?.commissionRateBps ?? ""}
+                placeholder="留空用全局设置"
+                className={inputClassName}
+              />
+            </div>
           </div>
+
+          {defaults ? (
+            <div className="border-t border-slate-200 bg-white px-4 py-4">
+              <div className="text-[13px] font-semibold text-slate-950">多语言翻译</div>
+              <div className="mt-1 text-[11px] leading-6 text-slate-500">
+                留空则前台显示中文原文。
+              </div>
+              <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">English</div>
+                  <input name="en_name" defaultValue={translations?.[`product.${defaults.slug}.name`]?.en ?? ""} placeholder="Product name (EN)" className={inputClassName} />
+                  <input name="en_subtitle" defaultValue={translations?.[`product.${defaults.slug}.subtitle`]?.en ?? ""} placeholder="Subtitle (EN)" className={inputClassName} />
+                  <textarea name="en_description" rows={2} defaultValue={translations?.[`product.${defaults.slug}.description`]?.en ?? ""} placeholder="Description (EN)" className={`${inputClassName} min-h-16 resize-y`} />
+                  <input name="en_deliveryNote" defaultValue={translations?.[`product.${defaults.slug}.deliveryNote`]?.en ?? ""} placeholder="Delivery note (EN)" className={inputClassName} />
+                  <input name="en_tags" defaultValue={translations?.[`product.${defaults.slug}.tags`]?.en ?? ""} placeholder="Tags (EN), separated by |" className={inputClassName} />
+                </div>
+                <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">한국어</div>
+                  <input name="ko_name" defaultValue={translations?.[`product.${defaults.slug}.name`]?.ko ?? ""} placeholder="상품명 (KO)" className={inputClassName} />
+                  <input name="ko_subtitle" defaultValue={translations?.[`product.${defaults.slug}.subtitle`]?.ko ?? ""} placeholder="부제목 (KO)" className={inputClassName} />
+                  <textarea name="ko_description" rows={2} defaultValue={translations?.[`product.${defaults.slug}.description`]?.ko ?? ""} placeholder="설명 (KO)" className={`${inputClassName} min-h-16 resize-y`} />
+                  <input name="ko_deliveryNote" defaultValue={translations?.[`product.${defaults.slug}.deliveryNote`]?.ko ?? ""} placeholder="전달 안내 (KO)" className={inputClassName} />
+                  <input name="ko_tags" defaultValue={translations?.[`product.${defaults.slug}.tags`]?.ko ?? ""} placeholder="태그 (KO), | 로 구분" className={inputClassName} />
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </details>
 
@@ -511,6 +552,12 @@ export default async function AdminProductsPage({
   const products = await getAdminProductsData();
   const categories = await getAdminProductCategoriesData();
   const coupons = await getAdminCouponsData();
+  const siteTexts = await getAdminSiteTextsData();
+  const translations = siteTexts.reduce<Record<string, Record<string, string>>>((map, row) => {
+    map[row.textKey] ??= {};
+    map[row.textKey][row.locale] = row.value;
+    return map;
+  }, {});
   const activeFilter = getStatusFromQuery(firstValue(params.status));
   const productStatusLabel: Record<ProductStatus, string> = {
     ACTIVE: copy.admin.products.statuses.active,
@@ -664,8 +711,21 @@ export default async function AdminProductsPage({
                             {category.managed ? uiCopy.categoryManaged : uiCopy.categoryDerived}
                           </div>
                         </div>
-                        <div className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
-                          {category.productCount}
+                        <div className="flex items-center gap-2">
+                          <div className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
+                            {category.productCount}
+                          </div>
+                          {category.managed && category.productCount === 0 ? (
+                            <form action={deleteProductCategoryAction}>
+                              <input type="hidden" name="categoryId" value={category.id} />
+                              <button
+                                type="submit"
+                                className="rounded-full bg-red-50 px-2 py-1 text-[10px] font-semibold text-red-600 hover:bg-red-100 transition"
+                              >
+                                删除
+                              </button>
+                            </form>
+                          ) : null}
                         </div>
                       </div>
                     ))
@@ -693,6 +753,7 @@ export default async function AdminProductsPage({
               <input name="minOrder" placeholder="最低订单金额，可选" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]" />
               <input name="maxDiscount" placeholder="最大优惠金额，可选" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]" />
               <input name="usageLimit" placeholder="总使用次数，可选" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]" />
+              <input name="perUserLimit" placeholder="每账户限用次数，可选" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]" />
               <select name="productId" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px]">
                 <option value="">不限商品</option>
                 {products.map((product) => (
@@ -915,6 +976,7 @@ export default async function AdminProductsPage({
                   productStatusLabel={productStatusLabel}
                   categories={categories}
                   defaults={product}
+                  translations={translations}
                   submitLabel={copy.admin.products.save}
                   submitPending={copy.admin.products.savePending}
                 />
