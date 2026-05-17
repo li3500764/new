@@ -1501,21 +1501,17 @@ export async function deleteProductCategoryAction(formData: FormData) {
     redirect(withQueryMessage("/admin/products", "error", "分类不存在。"));
   }
 
-  const productCount = await prisma.product.count({
+  // Move products in this category to "未分类"
+  await prisma.product.updateMany({
     where: { category: category.name },
+    data: { category: "未分类" },
   });
-
-  if (productCount > 0) {
-    redirect(
-      withQueryMessage("/admin/products", "error", "该分类下还有商品，不能删除"),
-    );
-  }
 
   await prisma.productCategory.delete({ where: { id: categoryId } });
 
   revalidatePath("/");
   revalidatePath("/admin/products");
-  redirect(withQueryMessage("/admin/products", "success", "分类已删除。"));
+  redirect(withQueryMessage("/admin/products", "success", "分类已删除，原有商品已移至「未分类」。"));
 }
 
 export async function adjustUserBalanceAction(formData: FormData) {
@@ -1578,4 +1574,28 @@ export async function adjustUserBalanceAction(formData: FormData) {
 
   revalidatePath("/admin/users");
   redirect(withQueryMessage("/admin/users", "success", "余额已调整。"));
+}
+
+export async function toggleProductStatusAction(formData: FormData) {
+  await requireAdminSession();
+  const productId = String(formData.get("productId") ?? "").trim();
+  const targetStatus = String(formData.get("status") ?? "").trim();
+
+  if (!productId || !targetStatus) {
+    redirect(withQueryMessage("/admin/products", "error", "参数不完整。"));
+  }
+
+  const validStatuses = ["ACTIVE", "DRAFT", "ARCHIVED"] as const;
+  if (!validStatuses.includes(targetStatus as typeof validStatuses[number])) {
+    redirect(withQueryMessage("/admin/products", "error", "状态无效。"));
+  }
+
+  await prisma.product.update({
+    where: { id: productId },
+    data: { status: targetStatus as ProductStatus },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/admin/products");
+  redirect(withQueryMessage("/admin/products", "success", targetStatus === "ACTIVE" ? "商品已上架。" : "商品已下架。"));
 }

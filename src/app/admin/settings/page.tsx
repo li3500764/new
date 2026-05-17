@@ -61,10 +61,10 @@ export default async function AdminSettingsPage({
   const rows = await getAdminSiteTextsData();
   const grouped = groupTexts(rows);
 
-  // Merge preset keys with any custom keys already in DB
+  // Merge preset keys with any custom keys already in DB (exclude product translations)
   const presetKeySet = new Set(presetTextKeys.map((item) => item.key));
   const customKeys = Object.keys(grouped)
-    .filter((key) => !presetKeySet.has(key))
+    .filter((key) => !presetKeySet.has(key) && !key.startsWith("product.") && !key.startsWith("commission."))
     .sort()
     .map((key) => ({ key, label: `自定义: ${key}` }));
   const allTextKeys = [...presetTextKeys, ...customKeys];
