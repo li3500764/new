@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { CategorySelect } from "@/components/category-select";
 import { PaginationNav } from "@/components/pagination-nav";
 
 type ServiceItem = {
@@ -76,7 +77,22 @@ export function ServiceList({
 
   return (
     <div className="space-y-3">
-      <section className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      {/* Mobile: dropdown select */}
+      <section className="lg:hidden">
+        <div className="flex items-center gap-3">
+          <div className="text-[11px] font-semibold tracking-[0.08em] text-slate-500 shrink-0">
+            {copy.categoryLabel}
+          </div>
+          <CategorySelect
+            groups={groups}
+            activeGroupId={activeGroupId}
+            allLabel={copy.allCategories}
+          />
+        </div>
+      </section>
+
+      {/* Desktop: tag buttons */}
+      <section className="hidden lg:flex lg:flex-col lg:gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="text-[11px] font-semibold tracking-[0.08em] text-slate-500">
           {copy.categoryLabel}
         </div>
