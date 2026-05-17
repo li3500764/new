@@ -13,6 +13,7 @@ import {
   addProductCredentialsAction,
   createCouponAction,
   deleteProductCategoryAction,
+  toggleProductStatusAction,
   upsertProductAction,
   upsertProductCategoryAction,
 } from "@/lib/actions/admin";
@@ -715,7 +716,7 @@ export default async function AdminProductsPage({
                           <div className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
                             {category.productCount}
                           </div>
-                          {category.managed && category.productCount === 0 ? (
+                          {category.managed ? (
                             <form action={deleteProductCategoryAction}>
                               <input type="hidden" name="categoryId" value={category.id} />
                               <button
@@ -967,6 +968,34 @@ export default async function AdminProductsPage({
                   </div>
                 </div>
               </summary>
+
+              <div className="flex items-center gap-3 border-t border-slate-200 bg-white px-5 py-3">
+                <span className="text-[12px] text-slate-500">快捷操作：</span>
+                {product.status === ProductStatus.ACTIVE ? (
+                  <form action={toggleProductStatusAction} className="inline">
+                    <input type="hidden" name="productId" value={product.id} />
+                    <input type="hidden" name="status" value="DRAFT" />
+                    <button type="submit" className="rounded-full bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition">
+                      下架
+                    </button>
+                  </form>
+                ) : (
+                  <form action={toggleProductStatusAction} className="inline">
+                    <input type="hidden" name="productId" value={product.id} />
+                    <input type="hidden" name="status" value="ACTIVE" />
+                    <button type="submit" className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 transition">
+                      上架
+                    </button>
+                  </form>
+                )}
+                <form action={toggleProductStatusAction} className="inline">
+                  <input type="hidden" name="productId" value={product.id} />
+                  <input type="hidden" name="status" value="ARCHIVED" />
+                  <button type="submit" className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-200 transition">
+                    归档
+                  </button>
+                </form>
+              </div>
 
               <div className="border-t border-slate-200 bg-slate-50/70 px-5 py-5 sm:px-6">
                 <ProductEditor
