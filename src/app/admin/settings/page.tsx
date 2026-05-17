@@ -1,7 +1,7 @@
 import { AlertBanner } from "@/components/alert-banner";
 import { SubmitButton } from "@/components/submit-button";
-import { upsertSiteTextAction, upsertProductTranslationAction } from "@/lib/actions/admin";
-import { getAdminSiteTextsData, getAdminProductsData } from "@/lib/data";
+import { upsertSiteTextAction } from "@/lib/actions/admin";
+import { getAdminSiteTextsData } from "@/lib/data";
 import { getFlashMessage } from "@/lib/utils";
 
 type AdminSettingsPageProps = {
@@ -60,7 +60,6 @@ export default async function AdminSettingsPage({
   const flash = getFlashMessage(await searchParams);
   const rows = await getAdminSiteTextsData();
   const grouped = groupTexts(rows);
-  const products = await getAdminProductsData();
 
   // Merge preset keys with any custom keys already in DB
   const presetKeySet = new Set(presetTextKeys.map((item) => item.key));
@@ -166,57 +165,6 @@ export default async function AdminSettingsPage({
               </div>
               <div className="flex justify-end">
                 <SubmitButton pendingText="保存中...">保存这一组</SubmitButton>
-              </div>
-            </form>
-          ))}
-        </div>
-      </section>
-
-      {/* 商品三语翻译 */}
-      <section className="panel overflow-hidden p-0">
-        <div className="border-b border-slate-200 px-6 py-5">
-          <h2 className="text-xl font-black text-slate-950">商品多语言翻译</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-500">
-            每个商品的名称、副标题、描述、交付说明都可以分别设置英文和韩文版本。中文版本在商品管理页面直接编辑。留空则前台显示中文原文。
-          </p>
-        </div>
-
-        <div className="divide-y divide-slate-200">
-          {products.slice(0, 30).map((product) => (
-            <form key={product.id} action={upsertProductTranslationAction} className="px-6 py-5">
-              <input type="hidden" name="productId" value={product.id} />
-              <div className="flex items-center gap-3 mb-4">
-                <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sm font-black text-sky-700">
-                  {product.cover}
-                </div>
-                <div>
-                  <div className="text-sm font-semibold text-slate-950">{product.name}</div>
-                  <div className="text-xs text-slate-500">{product.slug} · {product.category}</div>
-                </div>
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">English</div>
-                  <input name="en_name" defaultValue={grouped[`product.${product.slug}.name`]?.en ?? ""} placeholder="Product name (EN)" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
-                  <input name="en_subtitle" defaultValue={grouped[`product.${product.slug}.subtitle`]?.en ?? ""} placeholder="Subtitle (EN)" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
-                  <textarea name="en_description" rows={3} defaultValue={grouped[`product.${product.slug}.description`]?.en ?? ""} placeholder="Description (EN)" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
-                  <input name="en_deliveryNote" defaultValue={grouped[`product.${product.slug}.deliveryNote`]?.en ?? ""} placeholder="Delivery note (EN)" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
-                  <input name="en_tags" defaultValue={grouped[`product.${product.slug}.tags`]?.en ?? ""} placeholder="Tags (EN), separated by |" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
-                </div>
-
-                <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">한국어</div>
-                  <input name="ko_name" defaultValue={grouped[`product.${product.slug}.name`]?.ko ?? ""} placeholder="상품명 (KO)" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
-                  <input name="ko_subtitle" defaultValue={grouped[`product.${product.slug}.subtitle`]?.ko ?? ""} placeholder="부제목 (KO)" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
-                  <textarea name="ko_description" rows={3} defaultValue={grouped[`product.${product.slug}.description`]?.ko ?? ""} placeholder="설명 (KO)" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
-                  <input name="ko_deliveryNote" defaultValue={grouped[`product.${product.slug}.deliveryNote`]?.ko ?? ""} placeholder="전달 안내 (KO)" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
-                  <input name="ko_tags" defaultValue={grouped[`product.${product.slug}.tags`]?.ko ?? ""} placeholder="태그 (KO), | 로 구분" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" />
-                </div>
-              </div>
-
-              <div className="mt-4 flex justify-end">
-                <SubmitButton pendingText="保存中...">保存翻译</SubmitButton>
               </div>
             </form>
           ))}

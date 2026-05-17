@@ -552,6 +552,7 @@ export async function placeOrderAction(formData: FormData) {
             minOrderMicros: bigint;
             maxDiscountMicros: bigint | null;
             usageLimit: number | null;
+            perUserLimit: number | null;
             usedCount: number;
             startsAt: Date | null;
             expiresAt: Date | null;
@@ -584,6 +585,19 @@ export async function placeOrderAction(formData: FormData) {
           (coupon.expiresAt && coupon.expiresAt < now)
         ) {
           throw new Error("优惠券不可用或不满足使用条件。");
+        }
+
+        if (coupon.perUserLimit !== null) {
+          const userUsageCount = await tx.order.count({
+            where: {
+              couponId: coupon.id,
+              userId: session.userId,
+            },
+          });
+
+          if (userUsageCount >= coupon.perUserLimit) {
+            throw new Error("优惠券不可用或不满足使用条件。");
+          }
         }
 
         discountMicros = calculateCouponDiscount(

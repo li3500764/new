@@ -8,7 +8,7 @@ import { getCurrentLocale } from "@/lib/i18n-server";
 import { formatUsdt } from "@/lib/money";
 import { getListingMetaFromProduct } from "@/lib/order-fulfillment";
 import { getLocalizedProduct } from "@/lib/product-content";
-import { firstValue, getFlashMessage, slugify } from "@/lib/utils";
+import { firstValue, getFlashMessage } from "@/lib/utils";
 
 type HomePageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -90,7 +90,7 @@ export default async function Home({ searchParams }: HomePageProps) {
     new Set(localizedProducts.map((product) => product.category)),
   );
   const groups = categories.map((category) => ({
-    id: slugify(category),
+    id: category,
     label: category,
     items: localizedProducts
       .filter((product) => product.category === category)

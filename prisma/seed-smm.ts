@@ -197,13 +197,8 @@ function mapServiceType(type: string): UpstreamServiceType {
 }
 
 function slugify(name: string, id: number): string {
-  const base = name
-    .replace(/[^\p{L}\p{N}\s-]/gu, "")
-    .trim()
-    .replace(/\s+/g, "-")
-    .toLowerCase()
-    .slice(0, 50);
-  return `smm-${id}-${base || "service"}`;
+  void name;
+  return `smm-${id}`;
 }
 
 function isValidService(s: RawService): boolean {
@@ -311,10 +306,20 @@ async function main() {
       status: ProductStatus.ACTIVE,
     };
 
-    const existing = await prisma.product.findUnique({ where: { slug } });
+    const existing = await prisma.product.findFirst({
+      where: {
+        OR: [
+          { slug },
+          {
+            upstreamProvider: UpstreamProvider.CRAZYSMM,
+            upstreamServiceId: String(service.service),
+          },
+        ],
+      },
+    });
 
     if (existing) {
-      await prisma.product.update({ where: { slug }, data });
+      await prisma.product.update({ where: { id: existing.id }, data: { slug, ...data } });
       updated++;
     } else {
       await prisma.product.create({ data: { slug, ...data } });
