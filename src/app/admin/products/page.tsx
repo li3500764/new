@@ -33,7 +33,7 @@ type AdminProductsPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const ADMIN_PRODUCTS_PER_PAGE = 8;
+const ADMIN_PRODUCTS_PER_PAGE = 50;
 const DEFAULT_LISTING_MIN = 1;
 const DEFAULT_LISTING_AVERAGE_TIME = "5-10分钟";
 
@@ -997,6 +997,7 @@ export default async function AdminProductsPage({
             next: uiCopy.next,
             page: uiCopy.page,
             total: `${filteredProducts.length} ${uiCopy.rows}`,
+            jumpTo: locale === "zh" ? "跳到" : locale === "ko" ? "이동" : "Go to",
           }}
         />
       </section>
